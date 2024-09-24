@@ -1,46 +1,75 @@
-I have API see below,
+I have a function see below,
 
-@app.route('/fetch-filter-attributes-v2', methods=['GET'])
-def get_filter_attributes_v2() -> ResponseReturnValue:
+def get_filter_attributes_by_generation(
+    page: str, filter_level: str, generation: str, api_name: str
+) -> dict:
     """
-    Fetch filter options from dynamoDB table - version 2.
+    Retrieve category and event details from a DynamoDB table.
+
+    Args:
+        page (str): page name.
+        filter_level (str): filter level version.
+        generation (str): project generation version.
+        api_name (str): name of the API being used(determines return type).
 
     Returns:
-        (ResponseReturnValue): filter options list and status code.
+        list: A list containing a single dictionary with category names as keys
+        and event names as values.
     """
+    extracted_values = {}
+    category_names = []
     try:
-        page = request.args.get('page')
-        filter_level = request.args.get('filter_level')
-        generation = request.args.get('generation')
+        gen_key = f"gen_attributes_{generation}"
         response = filter_attributes_table.get_item(
-            Key={'page': page, 'filter_level': filter_level}
+            Key={'page': page, 'filter_level': filter_level},
+            ProjectionExpression="#genKey",
+            ExpressionAttributeNames={"#genKey": gen_key},
         )
-        if page == "event_sessions":
-            common_attributes = response['Item']['common_attributes']
-            gen_attributes = response['Item'][f'gen_attributes_{generation}']
-            final_response = {**common_attributes, **gen_attributes}
+
+        item = response.get('Item', {}).get(gen_key, {})
+
+        for attr, details in item.items():  # type: ignore
+            props = details.get('props', {})  # type: ignore
+            dropdown_values = props.get('dropdown_values')  # type: ignore
+            chart_type = props.get('chart_type', '')  # type: ignore
+            color_mapping = props.get('color_mapping', {})  # type: ignore
+            category_names.append(attr)
+
+            extracted_values[attr] = {
+                "dropdown_values": dropdown_values,
+                "chart_type": chart_type,
+                "color_mapping": color_mapping,
+            }
+
+    except exceptions.ClientError as error:
+        message = error.response['Error']['Message']
+        code = error.response['Error']['Code']
+
+        if code == "ResourceNotFoundException":
+            logging.error(
+                f"DynamoDB Table {FILTER_ATTRIBUTES_TABLE_NAME} "
+                f"not found: {str(error)}"
+            )
         else:
-            final_response = response['Item']['attributes']
-        logging.info(
-            f"dynamoDB response for fetching filter " f"attributes: {response}"
-        )
-        return (
-            jsonify(final_response),  # type: ignore
-            200,
-        )
-    except KeyError as e:
-        logging.error("KeyError occurred: %s", str(e))
-        return (
-            jsonify({'message': "No generation category information found"}),
-            404,
-        )
-    except Exception as e:
-        logging.exception(f"An error occurred: {str(e)}")
-        return jsonify({"message": str(e)}), 500
+            logging.error(f"Unhandled Exception: {code}{message}")
+
+    if api_name == "fetch-event-statistics-data":
+        return extracted_values
+    elif api_name == "fetch-events-for-listing":
+        return category_names
+    else:
+        return {}
 
 When i am doing static code analysis am getting this error see below, please fix this errors.
 
-dashboard/backend/main.py:587: error: Unpacked dict entry 0 has incompatible type "Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]"; expected "SupportsKeysAndGetItem[str, Any]"  [dict-item]
-dashboard/backend/main.py:587: error: Unpacked dict entry 1 has incompatible type "Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]"; expected "SupportsKeysAndGetItem[str, Any]"  [dict-item]
-dashboard/backend/main.py:589: error: Incompatible types in assignment (expression has type "Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]", variable has type "dict[str, Any]")  [assignment]
-Found 3 errors in 1 file (checked 1 source file)
+dashboard/backend/utility.py:1165:1: DAR203 Return type mismatch:  ~Return: expected dict but was list
+dashboard/backend/utility.py:1208:5: R505 unnecessary elif after return statement.
+
+black....................................................................Passed
+isort....................................................................Passed
+mypy.....................................................................Failed
+- hook id: mypy
+- exit code: 1
+
+dashboard/backend/utility.py:1211: error: Incompatible return value type (got "list[Union[Any, str]]", expected "dict[Any, Any]")  [return-value]
+Found 1 error in 1 file (checked 1 source file)
