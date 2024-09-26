@@ -1,75 +1,216 @@
 I have a function see below,
 
-def get_filter_attributes_by_generation(
-    page: str, filter_level: str, generation: str, api_name: str
-) -> dict:
-    """
-    Retrieve category and event details from a DynamoDB table.
+"""
+update and read the data for the dynamodb.
 
-    Args:
-        page (str): page name.
-        filter_level (str): filter level version.
-        generation (str): project generation version.
-        api_name (str): name of the API being used(determines return type).
+Filename: ddb_utility.py
+Author:  Muskan Shaikh (KPIT)
+Version: 1.0 (27th May 2024)
+"""
 
-    Returns:
-        list: A list containing a single dictionary with category names as keys
-        and event names as values.
-    """
-    extracted_values = {}
-    category_names = []
-    try:
-        gen_key = f"gen_attributes_{generation}"
-        response = filter_attributes_table.get_item(
-            Key={'page': page, 'filter_level': filter_level},
-            ProjectionExpression="#genKey",
-            ExpressionAttributeNames={"#genKey": gen_key},
-        )
+import logging
+import os
+from datetime import datetime
+from typing import TypeVar
 
-        item = response.get('Item', {}).get(gen_key, {})
+import boto3
 
-        for attr, details in item.items():  # type: ignore
-            props = details.get('props', {})  # type: ignore
-            dropdown_values = props.get('dropdown_values')  # type: ignore
-            chart_type = props.get('chart_type', '')  # type: ignore
-            color_mapping = props.get('color_mapping', {})  # type: ignore
-            category_names.append(attr)
+logger = logging.getLogger(f"__main__.{__name__}")
 
-            extracted_values[attr] = {
-                "dropdown_values": dropdown_values,
-                "chart_type": chart_type,
-                "color_mapping": color_mapping,
-            }
+DynamodbTableVar = TypeVar('DynamodbTableVar', bound='Table')
+GetDriveDataVar = TypeVar('GetDriveDataVar', bound='GetDriveData')
 
-    except exceptions.ClientError as error:
-        message = error.response['Error']['Message']
-        code = error.response['Error']['Code']
 
-        if code == "ResourceNotFoundException":
-            logging.error(
-                f"DynamoDB Table {FILTER_ATTRIBUTES_TABLE_NAME} "
-                f"not found: {str(error)}"
+class Table:
+    """DynamoDB table handler."""
+
+    def __init__(
+        self: DynamodbTableVar, table_name: str, region: str = "ap-northeast-1"
+    ) -> None:
+        """
+        Dynamodb table handler.
+
+        Args:
+            table_name: name of the drive session table
+            region: AWS region for table.
+        """
+        self.logger = logging.getLogger(f"Data status update.{__name__}")
+        self.dynamodb_resource = boto3.resource("dynamodb", region_name=region)
+        self.table_resource = self.dynamodb_resource.Table(table_name)
+
+    def get_item(
+        self: DynamodbTableVar,
+        search_key: str,
+        search_value: str,
+        sort_key: str,
+        sort_value: str,
+    ) -> dict:
+        """
+        Fetch item from dynamodb table.
+
+        Args:
+            search_key: dynamodb primary key.
+            search_value: primary key value.
+            sort_key: sort key for searching.
+            sort_value: sort key value.
+
+        Returns:
+            (dict): AWS response for fetching item.
+
+        Raises:
+            Exception: Any exception that occurs.
+
+        """
+        try:
+            self.logger.info("Fetching item from drive table")
+            response = self.table_resource.get_item(
+                Key={search_key: search_value, sort_key: sort_value}
             )
-        else:
-            logging.error(f"Unhandled Exception: {code}{message}")
+            self.logger.info(f'Item found: {response["Item"]}')
+            if "Item" not in response:
+                return {}
+            return response["Item"]
+        except Exception as error:
+            raise error
 
-    if api_name == "fetch-event-statistics-data":
-        return extracted_values
-    elif api_name == "fetch-events-for-listing":
-        return category_names
-    else:
-        return {}
+    def update_item(
+        self: DynamodbTableVar,
+        search_key: str,
+        search_key_value: str,
+        sort_key: str,
+        sort_key_value: str,
+        status_key: str,
+        data_to_update_value: dict,
+        current_status: str,
+    ) -> bool:
+        """
+        Update item into dynamodb table.
+
+        Args:
+            search_key: dynamodb primary key.
+            search_key_value: dynamodb primary key value.
+            sort_key: dynamodb sort key.
+            sort_key_value: dynamodb sort key value.
+            status_key: Key name in which the statuses are stored.
+            data_to_update_value: value for updating table.
+            current_status: value for updating status
+
+        Returns:
+            (bool): True if item updated else False.
+
+        Raises:
+            Exception: Any exception that occurs.
+
+        """
+        try:
+            logger.info(
+                "Updating DynamoDB with the",
+                f"{data_to_update_value} and {current_status}",
+            )
+            update_expression = (
+                f"SET "
+                f"{status_key}=:{status_key}, "
+                f"updated_at = :updated_at, "
+                f"current_status = :current_status"
+            )
+            expression_attr_values = {
+                f':{status_key}': data_to_update_value,
+                ':updated_at': datetime.utcnow().isoformat(),
+                ':current_status': current_status,
+            }
+            update_args: dict = {
+                "UpdateExpression": update_expression,
+                "ExpressionAttributeValues": expression_attr_values,
+                "ReturnValues": "UPDATED_NEW",
+            }
+            self.table_resource.update_item(
+                Key={
+                    search_key: search_key_value,
+                    sort_key: sort_key_value,
+                },
+                **update_args,
+            )
+            logger.info("Item updated successfully.")
+            return True
+        except Exception as error:
+            logger.exception(error)
+            raise error
+
+
+class GetDriveData:
+    """Fetch drive data information from lookup table."""
+
+    def __init__(self: GetDriveDataVar) -> None:
+        """Fetch drive data information from lookup table."""
+        region_name = os.environ.get("REGION", "ap-northeast-1")
+        self.dynamodb_resource = boto3.resource('dynamodb', region_name)
+
+    def fetch_data_from_lookup_table(
+        self: GetDriveDataVar,
+        lookup_table_name: str,
+        attribute_name: str,
+        attribute_value: str,
+    ) -> dict:
+        """
+        Fetch data from lookup table.
+
+        Args:
+            lookup_table_name(str): lookup table name.
+            attribute_name(str): name of attribute.
+            attribute_value(str): value of attribute.
+
+        Returns:
+            (dict): lookup item.
+
+        """
+        table = self.dynamodb_resource.Table(lookup_table_name)
+        items = []
+        try:
+            scan_kwargs = {
+                "FilterExpression": boto3.dynamodb.conditions.Key(
+                    attribute_name
+                ).eq(attribute_value),
+            }  # type: ignore
+            response = table.scan(**scan_kwargs)
+            items.extend(response.get("Items", []))
+            if "LastEvaluatedKey" in response:
+                while "LastEvaluatedKey" in response:
+                    response = (
+                        table.scan(
+                            **scan_kwargs,
+                            ExclusiveStartKey=response.get("LastEvaluatedKey"),
+                        ),
+                    )
+                    items.extend(response.get("Items", []))
+            lookup_data = items[0]
+            return lookup_data
+        except Exception:
+            logger.exception("An error occurred")
+            return {}
+
 
 When i am doing static code analysis am getting this error see below, please fix this errors.
 
-dashboard/backend/utility.py:1165:1: DAR203 Return type mismatch:  ~Return: expected dict but was list
-dashboard/backend/utility.py:1208:5: R505 unnecessary elif after return statement.
-
-black....................................................................Passed
-isort....................................................................Passed
-mypy.....................................................................Failed
-- hook id: mypy
-- exit code: 1
-
-dashboard/backend/utility.py:1211: error: Incompatible return value type (got "list[Union[Any, str]]", expected "dict[Any, Any]")  [return-value]
-Found 1 error in 1 file (checked 1 source file)
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "str"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Sequence[str]"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "int"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Literal['ALL_ATTRIBUTES', 'ALL_PROJECTED_ATTRIBUTES', 'COUNT', 'SPECIFIC_ATTRIBUTES']"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Mapping[str, ConditionTableTypeDef]"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Literal['AND', 'OR']"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Literal['INDEXES', 'NONE', 'TOTAL']"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Mapping[str, str]"  [arg-type]
+drive_session_status/ddb_utility.py:172: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "bool"  [arg-type]
+drive_session_status/ddb_utility.py:176: error: Incompatible types in assignment (expression has type "tuple[ScanOutputTableTypeDef]", variable has type "ScanOutputTableTypeDef")  [assignment]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "str"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Sequence[str]"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "int"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Literal['ALL_ATTRIBUTES', 'ALL_PROJECTED_ATTRIBUTES', 'COUNT', 'SPECIFIC_ATTRIBUTES']"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Mapping[str, ConditionTableTypeDef]"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Literal['AND', 'OR']"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Literal['INDEXES', 'NONE', 'TOTAL']"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Mapping[str, str]"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
+drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "bool"  [arg-type]
+drive_session_status/ddb_utility.py:179: error: Argument "ExclusiveStartKey" to "scan" of "Table" has incompatible type "Optional[dict[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
+Found 22 errors in 1 file (checked 1 source file)
