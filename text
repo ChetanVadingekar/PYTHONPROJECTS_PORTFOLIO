@@ -214,3 +214,195 @@ drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" 
 drive_session_status/ddb_utility.py:178: error: Argument 1 to "scan" of "Table" has incompatible type "**dict[str, Equals]"; expected "bool"  [arg-type]
 drive_session_status/ddb_utility.py:179: error: Argument "ExclusiveStartKey" to "scan" of "Table" has incompatible type "Optional[dict[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
 Found 22 errors in 1 file (checked 1 source file)
+
+"""
+update and read the data for the dynamodb.
+
+Filename: ddb_utility.py
+Author: Muskan Shaikh (KPIT)
+Version: 1.0 (27th May 2024)
+"""
+
+import logging
+import os
+from datetime import datetime
+from typing import TypeVar
+
+import boto3  # Imported once at the module level
+from boto3.dynamodb.conditions import Key  # Correctly importing Key for conditions
+
+logger = logging.getLogger(f"__main__.{__name__}")
+
+DynamodbTableVar = TypeVar('DynamodbTableVar', bound='Table')
+GetDriveDataVar = TypeVar('GetDriveDataVar', bound='GetDriveData')
+
+
+class Table:
+    """DynamoDB table handler."""
+
+    def __init__(
+        self: DynamodbTableVar, table_name: str, region: str = "ap-northeast-1"
+    ) -> None:
+        """
+        Dynamodb table handler.
+
+        Args:
+            table_name: name of the drive session table
+            region: AWS region for table.
+        """
+        self.logger = logging.getLogger(f"Data status update.{__name__}")
+        self.dynamodb_resource = boto3.resource("dynamodb", region_name=region)
+        self.table_resource = self.dynamodb_resource.Table(table_name)
+
+    def get_item(
+        self: DynamodbTableVar,
+        search_key: str,
+        search_value: str,
+        sort_key: str,
+        sort_value: str,
+    ) -> dict:
+        """
+        Fetch item from dynamodb table.
+
+        Args:
+            search_key: dynamodb primary key.
+            search_value: primary key value.
+            sort_key: sort key for searching.
+            sort_value: sort key value.
+
+        Returns:
+            (dict): AWS response for fetching item.
+
+        Raises:
+            Exception: Any exception that occurs.
+
+        """
+        try:
+            self.logger.info("Fetching item from drive table")
+            response = self.table_resource.get_item(
+                Key={search_key: search_value, sort_key: sort_value}
+            )
+            self.logger.info(f'Item found: {response["Item"]}')
+            if "Item" not in response:
+                return {}
+            return response["Item"]
+        except Exception as error:
+            raise error
+
+    def update_item(
+        self: DynamodbTableVar,
+        search_key: str,
+        search_key_value: str,
+        sort_key: str,
+        sort_key_value: str,
+        status_key: str,
+        data_to_update_value: dict,
+        current_status: str,
+    ) -> bool:
+        """
+        Update item into dynamodb table.
+
+        Args:
+            search_key: dynamodb primary key.
+            search_key_value: dynamodb primary key value.
+            sort_key: dynamodb sort key.
+            sort_key_value: dynamodb sort key value.
+            status_key: Key name in which the statuses are stored.
+            data_to_update_value: value for updating table.
+            current_status: value for updating status
+
+        Returns:
+            (bool): True if item updated else False.
+
+        Raises:
+            Exception: Any exception that occurs.
+
+        """
+        try:
+            logger.info(
+                "Updating DynamoDB with the",
+                f"{data_to_update_value} and {current_status}",
+            )
+            update_expression = (
+                f"SET "
+                f"{status_key}=:{status_key}, "
+                f"updated_at = :updated_at, "
+                f"current_status = :current_status"
+            )
+            expression_attr_values = {
+                f':{status_key}': data_to_update_value,
+                ':updated_at': datetime.utcnow().isoformat(),
+                ':current_status': current_status,
+            }
+            update_args: dict = {
+                "UpdateExpression": update_expression,
+                "ExpressionAttributeValues": expression_attr_values,
+                "ReturnValues": "UPDATED_NEW",
+            }
+            self.table_resource.update_item(
+                Key={
+                    search_key: search_key_value,
+                    sort_key: sort_key_value,
+                },
+                **update_args,
+            )
+            logger.info("Item updated successfully.")
+            return True
+        except Exception as error:
+            logger.exception(error)
+            raise error
+
+
+class GetDriveData:
+    """Fetch drive data information from lookup table."""
+
+    def __init__(self: GetDriveDataVar) -> None:
+        """Fetch drive data information from lookup table."""
+        region_name = os.environ.get("REGION", "ap-northeast-1")
+        self.dynamodb_resource = boto3.resource('dynamodb', region_name)
+
+    def fetch_data_from_lookup_table(
+        self: GetDriveDataVar,
+        lookup_table_name: str,
+        attribute_name: str,
+        attribute_value: str,
+    ) -> dict:
+        """
+        Fetch data from lookup table.
+
+        Args:
+            lookup_table_name(str): lookup table name.
+            attribute_name(str): name of attribute.
+            attribute_value(str): value of attribute.
+
+        Returns:
+            (dict): lookup item.
+
+        """
+        table = self.dynamodb_resource.Table(lookup_table_name)
+        items = []
+        try:
+            # Correct usage of `FilterExpression`
+            scan_kwargs = {
+                "FilterExpression": Key(attribute_name).eq(attribute_value),  # Using Key for filter
+            }
+            response = table.scan(**scan_kwargs)
+            items.extend(response.get("Items", []))
+            
+            # Fixed tuple unpacking issue
+            while "LastEvaluatedKey" in response:
+                response = table.scan(
+                    **scan_kwargs,
+                    ExclusiveStartKey=response.get("LastEvaluatedKey"),
+                )
+                items.extend(response.get("Items", []))
+            
+            if items:
+                lookup_data = items[0]
+                return lookup_data
+            else:
+                return {}
+
+        except Exception as error:
+            logger.exception("An error occurred")
+            return {}
