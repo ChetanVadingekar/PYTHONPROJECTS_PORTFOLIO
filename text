@@ -1,97 +1,48 @@
-# kendra_client.py
 import boto3
-from config import KENDRA_INDEX_ID
+import json
 
-# Initialize AWS Kendra Client
-kendra = boto3.client('kendra', region_name='us-east-1')
+dynamodb = boto3.client('dynamodb')
+kendra = boto3.client('kendra')
 
-def query_kendra(search_query, top_n=3):
-    """
-    Queries AWS Kendra to retrieve top N search results.
-    """
+def lambda_handler(event, context):
+    # Fetch data from DynamoDB
+    response = dynamodb.scan(
+        TableName='YourDynamoDBTableName',
+    )
+    documents = response['Items']
+    
+    kendra_documents = []
+    
+    for doc in documents:
+        # Prepare documents for Kendra ingestion
+        kendra_document = {
+            'Id': doc['id']['S'],  # Use a unique identifier
+            'Title': doc['title']['S'],
+            'Blob': doc['content']['S'].encode('utf-8'),  # Content of the document
+            'Attributes': [
+                {
+                    'Key': 'Author',
+                    'Value': {
+                        'StringValue': doc['author']['S']
+                    }
+                },
+                # Add other attributes if necessary
+            ]
+        }
+        kendra_documents.append(kendra_document)
+    
+    # Batch upload to Kendra
     try:
-        response = kendra.query(
-            IndexId=KENDRA_INDEX_ID,
-            QueryText=search_query,
-            PageSize=top_n  # Get the top N matches
+        kendra.batch_put_document(
+            IndexId='YourKendraIndexId',
+            Documents=kendra_documents
         )
-        
-        # Parse results from Kendra response
-        results = []
-        for result in response['ResultItems']:
-            if 'DocumentTitle' in result:
-                results.append({
-                    'DocumentTitle': result['DocumentTitle']['Text'],
-                    'Snippet': result['DocumentExcerpt']['Text']
-                })
-        
-        return results
-    
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Documents ingested into Kendra successfully')
+        }
     except Exception as e:
-        print(f"Error querying Kendra: {str(e)}")
-        return []
-
-
-# app.py
-from flask import Flask, request, jsonify
-from kendra_client import query_kendra
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Welcome to AWS Kendra Search Integration"
-
-@app.route('/search', methods=['POST'])
-def search_description():
-    """
-    Endpoint for querying AWS Kendra with a search query.
-    Expected input: {"query": "some description"}
-    """
-    try:
-        data = request.get_json()
-        search_query = data.get('query')
-        
-        if not search_query:
-            return jsonify({"error": "Search query is required"}), 400
-        
-        # Query Kendra for the top 3 matches
-        results = query_kendra(search_query)
-        
-        return jsonify({
-            "search_query": search_query,
-            "results": results
-        })
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
-
-
-{
-    "description_id": "desc1",
-    "description_text": "This is a description about cloud services provided by AWS."
-},
-{
-    "description_id": "desc2",
-    "description_text": "A detailed explanation of Amazon DynamoDB as a key-value database."
-},
-{
-    "description_id": "desc3",
-    "description_text": "An overview of AWS Kendra as an enterprise search service."
-},
-{
-    "description_id": "desc4",
-    "description_text": "The benefits of using AWS Lambda for serverless computing."
-},
-{
-    "description_id": "desc5",
-    "description_text": "Understanding Amazon S3 for scalable object storage."
-},
-{
-    "description_id": "desc6",
-    "description_text": "Learn about the benefits of AWS Elastic Beanstalk for deploying applications."
-}
-
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f'Failed to ingest documents: {str(e)}')
+        }
