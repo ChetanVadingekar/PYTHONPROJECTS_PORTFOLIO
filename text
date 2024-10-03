@@ -155,4 +155,7 @@ def get_country_details(country_code: str) -> dict:
 
 
 Now the requiremnt is client want to see rec_year_month_date as well.
-so what we thought
+so what we thought we get the drive session table name for each project and we have OpenSearch index for ecah drive session table name.
+so using that drive session table name we can query on OpenSearch to find out the rec_year_month_date.
+
+
