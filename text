@@ -1,48 +1,158 @@
-import boto3
-import json
+I have an API and their utility functions see below,
 
-dynamodb = boto3.client('dynamodb')
-kendra = boto3.client('kendra')
+@app.route("/get-project-details", methods=["GET"])
+def fetch_projects_info() -> ResponseReturnValue:
+    """
+    Get the projects information to render on home page.
 
-def lambda_handler(event, context):
-    # Fetch data from DynamoDB
-    response = dynamodb.scan(
-        TableName='YourDynamoDBTableName',
-    )
-    documents = response['Items']
-    
-    kendra_documents = []
-    
-    for doc in documents:
-        # Prepare documents for Kendra ingestion
-        kendra_document = {
-            'Id': doc['id']['S'],  # Use a unique identifier
-            'Title': doc['title']['S'],
-            'Blob': doc['content']['S'].encode('utf-8'),  # Content of the document
-            'Attributes': [
-                {
-                    'Key': 'Author',
-                    'Value': {
-                        'StringValue': doc['author']['S']
-                    }
-                },
-                # Add other attributes if necessary
-            ]
-        }
-        kendra_documents.append(kendra_document)
-    
-    # Batch upload to Kendra
+    Returns:
+        (ResponseReturnValue): list of events.
+    """
+    projection_attributes = [
+        "project_name",
+        "country_code",
+        "generation_name",
+        "model_name",
+        "drive_session_table_name",
+    ]
     try:
-        kendra.batch_put_document(
-            IndexId='YourKendraIndexId',
-            Documents=kendra_documents
+        response = lookup_table.scan(
+            ProjectionExpression=",".join(projection_attributes)
         )
-        return {
-            'statusCode': 200,
-            'body': json.dumps('Documents ingested into Kendra successfully')
+
+        projects = response.get("Items", [])
+
+        while response.get("LastEvaluatedKey"):
+            response = lookup_table.scan(
+                ProjectionExpression=",".join(projection_attributes),
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            if response.get("Items"):
+                projects.extend(response.get("Items"))  # type: ignore
+
+        if not projects:
+            message = "No projects found in lookup table for home page listing"
+            logging.info(message)
+            return jsonify({"data": [], "message": message}), 200
+
+        response_data = format_project_details(projects)
+
+        return (
+            jsonify(
+                {
+                    "data": response_data,
+                    "message": "Fetched projects from lookup table",
+                }
+            ),
+            200,
+        )
+
+    except ClientError as err:
+        message = err.response['Error']['Message']
+        code = err.response['Error']['Code']
+
+        if code == "ResourceNotFoundException":
+            message = f"DynamoDB Table {LOOKUP_TABLE} not found"
+            logging.error(message)
+            status_code = 404
+        else:
+            logging.error(f"Unhandled Exception: {code}:{message}")
+            status_code = 500
+
+        return jsonify({"message": message, "error_code": code}), status_code
+
+
+def format_project_details(projects: list) -> list:
+    """
+    Rearrange the projects based on region.
+
+    Args:
+        projects (list): Lookup table project items
+
+    Returns:
+        list: Formatted project details
+    """
+    data: dict = {}
+    for project in projects:
+        name = project.get("project_name")
+        country_code = project.get("country_code", "JP").upper()
+
+        # if country_code is an empty string
+        if not country_code:
+            country_code = "JP"
+
+        generation_name = project.get("generation_name", "Gen1").capitalize()
+        model_name = project.get("model_name", "PADAS").upper()
+        drive_session_table_name = project.get("drive_session_table_name","")
+        version = f"Gen{generation_name} {model_name}"
+
+        project_info = {
+            "project_name": name, 
+            "version": version, 
+            "drive_session_table_name": drive_session_table_name
         }
-    except Exception as e:
-        return {
-            'statusCode': 500,
-            'body': json.dumps(f'Failed to ingest documents: {str(e)}')
+
+        if country_code in data:
+            data[country_code]["projects"].append(project_info)
+        else:
+            data[country_code] = {"projects": [project_info]}
+
+    formatted_data = []
+    for country in data:
+        country_details = get_country_details(country_code=country)
+
+        # Default setting the country_details to Japan
+        country_name = country_details.get("country_name", "Japan")
+        center_point = country_details.get(
+            "center_point", ["36.204824", "138.252924"]
+        )
+        data_dict = {
+            "country": country_name,
+            "latlng": center_point,
+            "projects": data[country]["projects"],
         }
+        formatted_data.append(data_dict)
+
+    return formatted_data
+
+def get_country_details(country_code: str) -> dict:
+    """
+    Fetch country details for map centering.
+
+    Args:
+        country_code: Unique code of the country
+
+    Returns:
+        dict: Details for map centering
+            country_code: Unique code of the country
+            country_name: Name of the country
+            center_point: List of latitude and longitude of the country
+            zoom_level: Zoom level to be used for displaying on dashboard
+    """
+    map_details: dict = {}
+    try:
+        response = map_info_table.query(
+            KeyConditionExpression=Key('country_code').eq(country_code)
+        )
+
+        map_details = response["Items"][0]
+
+    except IndexError as e:
+        logging.info(f"No records found: {str(e)}")
+
+    except exceptions.ClientError as error:
+        message = error.response['Error']['Message']
+        code = error.response['Error']['Code']
+
+        if code == "ResourceNotFoundException":
+            logging.error(
+                f"DynamoDB Table {MAP_INFO_TABLE_NAME} not found: {str(error)}"
+            )
+        else:
+            logging.error(f"Unhandled Exception: {code}{message}")
+
+    return map_details
+
+
+Now the requiremnt is client want to see rec_year_month_date as well.
+so what we thought
