@@ -35,7 +35,6 @@ def format_project_details(projects: list) -> list:
         else:
             data[country_code] = {"projects": [project_info]}
 
-    print(f"data: {data}")
     formatted_data = []
     for country in data:
         country_details = get_country_details(country_code=country)
@@ -45,10 +44,16 @@ def format_project_details(projects: list) -> list:
         center_point = country_details.get(
             "center_point", ["36.204824", "138.252924"]
         )
+
+        formatted_projects =[
+            {key: value for key, value in project.items() if key != "drive_session_index_name"}
+            for project in data[country]["projects"]
+        ]
+
         data_dict = {
             "country": country_name,
             "latlng": center_point,
-            "projects": data[country]["projects"],
+            "projects": formatted_projects,
         }
         formatted_data.append(data_dict)
 
@@ -114,8 +119,7 @@ and the formatted output is below,
             "projects": [
                 {
                     "project_name": "us-project-01",
-                    "version": "Gen1.0 EADAS",
-                    "drive_session_index_name": "adcp-us-project-01-drive-data"
+                    "version": "Gen1.0 EADAS"
                 }
             ]
         },
@@ -128,23 +132,19 @@ and the formatted output is below,
             "projects": [
                 {
                     "project_name": "automation",
-                    "version": "Gen1.0 MODEL_10",
-                    "drive_session_index_name": "automation-test-drive-data"
+                    "version": "Gen1.0 MODEL_10"
                 },
                 {
                     "project_name": "dev-test-cli-02",
-                    "version": "Gen1.0 MODEL_10",
-                    "drive_session_index_name": "adcp-dev-test-cli-02-drive-data"
+                    "version": "Gen1.0 MODEL_10"
                 },
                 {
                     "project_name": "gen3-fot",
-                    "version": "Gen3.0 MODEL_10",
-                    "drive_session_index_name": "adcp-gen3-fot-drive-data"
+                    "version": "Gen3.0 MODEL_10"
                 },
                 {
                     "project_name": "dev",
-                    "version": "Gen1.0 MODEL-10",
-                    "drive_session_index_name": "dev-drive-data"
+                    "version": "Gen1.0 MODEL-10"
                 }
             ]
         },
@@ -157,8 +157,7 @@ and the formatted output is below,
             "projects": [
                 {
                     "project_name": "eb-test",
-                    "version": "Gen3.0 MODEL_10",
-                    "drive_session_index_name": "adcp-eb-test-drive-data"
+                    "version": "Gen3.0 MODEL_10"
                 }
             ]
         }
@@ -166,5 +165,13 @@ and the formatted output is below,
     "message": "Fetched projects from lookup table"
 }
 
+now in data we have drive_session_index_name for each projects.
+How get_country_details fetch using for loop likewise we get the rec_year_month_date. 
+once we get that we can format it as per YYYY-DD-MM and we can append in into formatted_data for each project. 
 
-but I don't want send the drive_session_index_name in formatted data so how we can remove that.
+Corener cases:
+
+if the drive session index doesn't created for the perticular project. send the message index not found 404
+if we have index but the rec_year_month_date is not present for the respective index. send it empty in a response.   
+
+update the code as per the requirement.
