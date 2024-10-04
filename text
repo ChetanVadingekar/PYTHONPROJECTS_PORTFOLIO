@@ -1,89 +1,58 @@
-we have opensearch_utility.py so basically we write code for opensearch here only. 
+from typing import Any, Dict
 
-class OpenSearchEventStatisticsUtility:
+class OpenSearchDriveSessionUtility:
     """
-    A utility class for creating and executing OpenSearch queries.
+    A utility class for querying OpenSearch to retrieve the most recent `rec_year_month_date` 
+    for drive session indexes.
 
     Attributes:
-        index_name (str): The name of the OpenSearch index to query.
-        input_data (list): The input data containing categories and
-        include lists for aggregation.
+        index_name (str): The name of the OpenSearch drive session index to query.
     """
 
-    def __init__(
-        self: OpenSearchEventStatisticsUtilityVar,
-        index_name: str,
-        input_data: dict[str, dict[str, Any]],
-    ) -> None:
+    def __init__(self, index_name: str) -> None:
         """
-        Initialize the OpenSearchEventStatisticsUtility variables.
+        Initialize the OpenSearchDriveSessionUtility.
 
         Args:
-            index_name (str): The name of the OpenSearch index.
-            input_data (list): The input data for creating queries.
+            index_name (str): The name of the OpenSearch drive session index.
         """
         self.index_name = index_name
-        self.input_data = input_data
 
-    def create_query(
-        self: OpenSearchEventStatisticsUtilityVar,
-    ) -> dict[str, Any]:
+    def create_query(self) -> Dict[str, Any]:
         """
-        Create an OpenSearch query based on the input data.
+        Create an OpenSearch query to fetch the most recent `rec_year_month_date`.
 
         Returns:
             dict: The OpenSearch query.
         """
-        query: dict[str, Any] = {
-            "size": 0,
+        query: Dict[str, Any] = {
+            "size": 1,  # Fetch only the most recent document
+            "_source": ["rec_year_month_date"],
+            "sort": [
+                {"rec_year_month_date": {"order": "desc"}}
+            ],
             "query": {
-                "bool": {"filter": [{"term": {"split_status": "SUCCESS"}}]}
-            },
-            "aggs": {},
+                "match_all": {}
+            }
         }
-
-        for category_name, category_details in self.input_data.items():
-            include_list = category_details.get('dropdown_values', [])
-            query["aggs"][category_name] = self.create_aggregation(
-                include_list
-            )
         return query
 
-    def create_aggregation(
-        self: OpenSearchEventStatisticsUtilityVar, include_list: list
-    ) -> dict:
+    def get_rec_year_month_date(self) -> str:
         """
-        Create an aggregation clause for the OpenSearch query.
-
-        Args:
-            include_list (list): list of terms to include in the aggregation.
+        Execute an OpenSearch query on the drive session index to get the most recent `rec_year_month_date`.
 
         Returns:
-            dict: The aggregation clause.
+            str: The most recent `rec_year_month_date` if found, or error message if the index doesn't exist.
         """
-        return {
-            "terms": {"field": "tags", "include": include_list, "size": 100}
-        }
-
-    def search(
-        self: OpenSearchEventStatisticsUtilityVar, index_name: str
-    ) -> dict:
-        """
-        Execute an OpenSearch query on the given index.
-
-        Args:
-            index_name (str): The name of the OpenSearch index.
-
-        Returns:
-            dict: The response from the OpenSearch query.
-        """
-        if client.indices.exists(index=index_name):
+        if client.indices.exists(index=self.index_name):
             query = self.create_query()
-            response = client.search(index=index_name, body=query)
-            return response
+            response = client.search(index=self.index_name, body=query)
 
-        return {}
-
-
-likewise can we write a class for to get the rec_year_month_date for resptive drive session index.
-above code just for your reference. 
+            # Extract the rec_year_month_date from the response
+            if response['hits']['hits']:
+                rec_year_month_date = response['hits']['hits'][0]['_source'].get('rec_year_month_date', '')
+                return rec_year_month_date if rec_year_month_date else ""
+            else:
+                return ""  # No data found for the index
+        else:
+            return "Index not found"
