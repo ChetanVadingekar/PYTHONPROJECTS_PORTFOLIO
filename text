@@ -1,66 +1,4 @@
-I have an API and their utility functions see below,
-
-@app.route("/get-project-details", methods=["GET"])
-def fetch_projects_info() -> ResponseReturnValue:
-    """
-    Get the projects information to render on home page.
-
-    Returns:
-        (ResponseReturnValue): list of events.
-    """
-    projection_attributes = [
-        "project_name",
-        "country_code",
-        "generation_name",
-        "model_name",
-        "drive_session_table_name",
-    ]
-    try:
-        response = lookup_table.scan(
-            ProjectionExpression=",".join(projection_attributes)
-        )
-
-        projects = response.get("Items", [])
-
-        while response.get("LastEvaluatedKey"):
-            response = lookup_table.scan(
-                ProjectionExpression=",".join(projection_attributes),
-                ExclusiveStartKey=response["LastEvaluatedKey"],
-            )
-            if response.get("Items"):
-                projects.extend(response.get("Items"))  # type: ignore
-
-        if not projects:
-            message = "No projects found in lookup table for home page listing"
-            logging.info(message)
-            return jsonify({"data": [], "message": message}), 200
-
-        response_data = format_project_details(projects)
-
-        return (
-            jsonify(
-                {
-                    "data": response_data,
-                    "message": "Fetched projects from lookup table",
-                }
-            ),
-            200,
-        )
-
-    except ClientError as err:
-        message = err.response['Error']['Message']
-        code = err.response['Error']['Code']
-
-        if code == "ResourceNotFoundException":
-            message = f"DynamoDB Table {LOOKUP_TABLE} not found"
-            logging.error(message)
-            status_code = 404
-        else:
-            logging.error(f"Unhandled Exception: {code}:{message}")
-            status_code = 500
-
-        return jsonify({"message": message, "error_code": code}), status_code
-
+I have below utility function,
 
 def format_project_details(projects: list) -> list:
     """
@@ -89,7 +27,7 @@ def format_project_details(projects: list) -> list:
         project_info = {
             "project_name": name, 
             "version": version, 
-            "drive_session_table_name": drive_session_table_name
+            "drive_session_index_name": drive_session_table_name
         }
 
         if country_code in data:
@@ -97,6 +35,7 @@ def format_project_details(projects: list) -> list:
         else:
             data[country_code] = {"projects": [project_info]}
 
+    print(f"data: {data}")
     formatted_data = []
     for country in data:
         country_details = get_country_details(country_code=country)
@@ -115,172 +54,117 @@ def format_project_details(projects: list) -> list:
 
     return formatted_data
 
-def get_country_details(country_code: str) -> dict:
-    """
-    Fetch country details for map centering.
+FYI data variable has this below data,
 
-    Args:
-        country_code: Unique code of the country
-
-    Returns:
-        dict: Details for map centering
-            country_code: Unique code of the country
-            country_name: Name of the country
-            center_point: List of latitude and longitude of the country
-            zoom_level: Zoom level to be used for displaying on dashboard
-    """
-    map_details: dict = {}
-    try:
-        response = map_info_table.query(
-            KeyConditionExpression=Key('country_code').eq(country_code)
-        )
-
-        map_details = response["Items"][0]
-
-    except IndexError as e:
-        logging.info(f"No records found: {str(e)}")
-
-    except exceptions.ClientError as error:
-        message = error.response['Error']['Message']
-        code = error.response['Error']['Code']
-
-        if code == "ResourceNotFoundException":
-            logging.error(
-                f"DynamoDB Table {MAP_INFO_TABLE_NAME} not found: {str(error)}"
-            )
-        else:
-            logging.error(f"Unhandled Exception: {code}{message}")
-
-    return map_details
-
-
-Now the requiremnt is client want to see rec_year_month_date as well.
-so what we thought we get the drive session table name for each project and we have OpenSearch index for ecah drive session table name.
-so using that drive session table name we can query on OpenSearch to find out the rec_year_month_date.
-
-FY reference we have OpenSearch schema for the drive sessions index see below,
-
-class DriveSession(Document):
-    """Document to store Drive Session data."""
-
-    created_at = Date()
-    display_id = Keyword()
-    folder_name = Keyword()
-    gps_information = Object(dynamic=True)  # type: ignore
-    rec_year_month = Keyword()
-    rec_year_month_date = Keyword()
-    s3_uri = Object(dynamic=True)  # type: ignore
-    start_time = Date()
-    stop_time = Date()
-    tags = Keyword(multi=True, normalizer="lowercase")  # type: ignore
-    updated_at = Date()
-    vehicle_id = Keyword()
-    trajectory = Object(dynamic=True)  # type: ignore
-    current_status = Keyword()
-    pipeline_status = Object(dynamic=True)  # type: ignore
-    
-FY reference see some data present in the the drive sessions index for each project drive session table name
-
+{
+  "US": {
+    "projects": [
       {
-        "_index": "adcp-us-project-01-drive-data",
-        "_id": "41-20220323_141245",
-        "_score": 1,
-        "_source": {
-          "country": "US",
-          "updated_at": "2024-07-10T05:04:37.422827",
-          "display_id": "901e2beb-bc26-42dd-91dd-97300c3cff6d",
-          "rec_year_month": "202203",
-          "created_at": "2024-07-10T05:02:10.972604+00:00",
-          "current_status": "Failed",
-          "pipeline_status": {
-            "merge_avi": {
-              "error_log_name": [
-                "/aws/batch/job|dev-DataMerge-MergeAVI/default/1c0474f86224411994294615cbe12c90"
-              ],
-              "updated_at": "2024-07-10T05:04:37.422378",
-              "status": "Failed"
-            },
-            "merge_parquet": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:02:10.972604+00:00",
-              "status": "Pending"
-            },
-            "upload": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:03:47.825305+00:00",
-              "status": "Completed"
-            },
-            "rosbag": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:02:10.972604+00:00",
-              "status": "Pending"
-            },
-            "conversion": {
-              "error_log_name": "",
-              "updated_at": "2024-07-10T05:03:47.825305+00:00",
-              "status": "InProgress"
-            },
-            "statistics": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:02:10.972604+00:00",
-              "status": "Pending"
-            }
-          },
-          "folder_name": "20220323_141245",
-          "rec_year_month_date": "20220323",
-          "vehicle_id": "41"
-        }
+        "project_name": "us-project-01",
+        "version": "Gen1.0 EADAS",
+        "drive_session_index_name": "adcp-us-project-01-drive-data"
+      }
+    ]
+  },
+  "JP": {
+    "projects": [
+      {
+        "project_name": "automation",
+        "version": "Gen1.0 MODEL_10",
+        "drive_session_index_name": "automation-test-drive-data"
       },
       {
-        "_index": "adcp-us-project-01-drive-data",
-        "_id": "41-20220323_213053",
-        "_score": 1,
-        "_source": {
-          "country": "US",
-          "updated_at": "2024-07-10T05:05:00.287609",
-          "display_id": "6fd0ffc8-80bb-4e4d-af13-e4e284931a06",
-          "rec_year_month": "202203",
-          "created_at": "2024-07-10T05:03:50.107545+00:00",
-          "current_status": "Failed",
-          "pipeline_status": {
-            "merge_avi": {
-              "error_log_name": [
-                "/aws/batch/job|dev-DataMerge-MergeAVI/default/db006b84906045f699bfb2bcb320fc07"
-              ],
-              "updated_at": "2024-07-10T05:05:00.287180",
-              "status": "Failed"
-            },
-            "merge_parquet": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:03:50.107545+00:00",
-              "status": "Pending"
-            },
-            "upload": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:04:30.979145+00:00",
-              "status": "Completed"
-            },
-            "rosbag": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:03:50.107545+00:00",
-              "status": "Pending"
-            },
-            "conversion": {
-              "error_log_name": "",
-              "updated_at": "2024-07-10T05:04:30.979145+00:00",
-              "status": "InProgress"
-            },
-            "statistics": {
-              "error_log_name": [],
-              "updated_at": "2024-07-10T05:03:50.107545+00:00",
-              "status": "Pending"
-            }
-          },
-          "folder_name": "20220323_213053",
-          "rec_year_month_date": "20220323",
-          "vehicle_id": "41"
-        }
+        "project_name": "dev-test-cli-02",
+        "version": "Gen1.0 MODEL_10",
+        "drive_session_index_name": "adcp-dev-test-cli-02-drive-data"
       },
+      {
+        "project_name": "gen3-fot",
+        "version": "Gen3.0 MODEL_10",
+        "drive_session_index_name": "adcp-gen3-fot-drive-data"
+      },
+      {
+        "project_name": "dev",
+        "version": "Gen1.0 MODEL-10",
+        "drive_session_index_name": "dev-drive-data"
+      }
+    ]
+  },
+  "EU": {
+    "projects": [
+      {
+        "project_name": "eb-test",
+        "version": "Gen3.0 MODEL_10",
+        "drive_session_index_name": "adcp-eb-test-drive-data"
+      }
+    ]
+  }
+}
 
-so we have to write a query to get rec_year_month_date for the respective drive sessions index for each project.
-once we get the rec_year_month_date for each projects then we have to format in the YYYY-DD-MM format and send it in the response.  
+and the formatted output is below,
+
+{
+    "data": [
+        {
+            "country": "United States",
+            "latlng": [
+                "37.09024",
+                "-95.712891"
+            ],
+            "projects": [
+                {
+                    "project_name": "us-project-01",
+                    "version": "Gen1.0 EADAS",
+                    "drive_session_index_name": "adcp-us-project-01-drive-data"
+                }
+            ]
+        },
+        {
+            "country": "Japan",
+            "latlng": [
+                "36.204824",
+                "138.252924"
+            ],
+            "projects": [
+                {
+                    "project_name": "automation",
+                    "version": "Gen1.0 MODEL_10",
+                    "drive_session_index_name": "automation-test-drive-data"
+                },
+                {
+                    "project_name": "dev-test-cli-02",
+                    "version": "Gen1.0 MODEL_10",
+                    "drive_session_index_name": "adcp-dev-test-cli-02-drive-data"
+                },
+                {
+                    "project_name": "gen3-fot",
+                    "version": "Gen3.0 MODEL_10",
+                    "drive_session_index_name": "adcp-gen3-fot-drive-data"
+                },
+                {
+                    "project_name": "dev",
+                    "version": "Gen1.0 MODEL-10",
+                    "drive_session_index_name": "dev-drive-data"
+                }
+            ]
+        },
+        {
+            "country": "Europe",
+            "latlng": [
+                "51.165700",
+                "10.451500"
+            ],
+            "projects": [
+                {
+                    "project_name": "eb-test",
+                    "version": "Gen3.0 MODEL_10",
+                    "drive_session_index_name": "adcp-eb-test-drive-data"
+                }
+            ]
+        }
+    ],
+    "message": "Fetched projects from lookup table"
+}
+
+
+but I don't want send the drive_session_index_name in formatted data so how we can remove that.
