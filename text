@@ -158,4 +158,129 @@ Now the requiremnt is client want to see rec_year_month_date as well.
 so what we thought we get the drive session table name for each project and we have OpenSearch index for ecah drive session table name.
 so using that drive session table name we can query on OpenSearch to find out the rec_year_month_date.
 
+FY reference we have OpenSearch schema for the drive sessions index see below,
 
+class DriveSession(Document):
+    """Document to store Drive Session data."""
+
+    created_at = Date()
+    display_id = Keyword()
+    folder_name = Keyword()
+    gps_information = Object(dynamic=True)  # type: ignore
+    rec_year_month = Keyword()
+    rec_year_month_date = Keyword()
+    s3_uri = Object(dynamic=True)  # type: ignore
+    start_time = Date()
+    stop_time = Date()
+    tags = Keyword(multi=True, normalizer="lowercase")  # type: ignore
+    updated_at = Date()
+    vehicle_id = Keyword()
+    trajectory = Object(dynamic=True)  # type: ignore
+    current_status = Keyword()
+    pipeline_status = Object(dynamic=True)  # type: ignore
+    
+FY reference see some data present in the the drive sessions index for each project drive session table name
+
+      {
+        "_index": "adcp-us-project-01-drive-data",
+        "_id": "41-20220323_141245",
+        "_score": 1,
+        "_source": {
+          "country": "US",
+          "updated_at": "2024-07-10T05:04:37.422827",
+          "display_id": "901e2beb-bc26-42dd-91dd-97300c3cff6d",
+          "rec_year_month": "202203",
+          "created_at": "2024-07-10T05:02:10.972604+00:00",
+          "current_status": "Failed",
+          "pipeline_status": {
+            "merge_avi": {
+              "error_log_name": [
+                "/aws/batch/job|dev-DataMerge-MergeAVI/default/1c0474f86224411994294615cbe12c90"
+              ],
+              "updated_at": "2024-07-10T05:04:37.422378",
+              "status": "Failed"
+            },
+            "merge_parquet": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:02:10.972604+00:00",
+              "status": "Pending"
+            },
+            "upload": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:03:47.825305+00:00",
+              "status": "Completed"
+            },
+            "rosbag": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:02:10.972604+00:00",
+              "status": "Pending"
+            },
+            "conversion": {
+              "error_log_name": "",
+              "updated_at": "2024-07-10T05:03:47.825305+00:00",
+              "status": "InProgress"
+            },
+            "statistics": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:02:10.972604+00:00",
+              "status": "Pending"
+            }
+          },
+          "folder_name": "20220323_141245",
+          "rec_year_month_date": "20220323",
+          "vehicle_id": "41"
+        }
+      },
+      {
+        "_index": "adcp-us-project-01-drive-data",
+        "_id": "41-20220323_213053",
+        "_score": 1,
+        "_source": {
+          "country": "US",
+          "updated_at": "2024-07-10T05:05:00.287609",
+          "display_id": "6fd0ffc8-80bb-4e4d-af13-e4e284931a06",
+          "rec_year_month": "202203",
+          "created_at": "2024-07-10T05:03:50.107545+00:00",
+          "current_status": "Failed",
+          "pipeline_status": {
+            "merge_avi": {
+              "error_log_name": [
+                "/aws/batch/job|dev-DataMerge-MergeAVI/default/db006b84906045f699bfb2bcb320fc07"
+              ],
+              "updated_at": "2024-07-10T05:05:00.287180",
+              "status": "Failed"
+            },
+            "merge_parquet": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:03:50.107545+00:00",
+              "status": "Pending"
+            },
+            "upload": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:04:30.979145+00:00",
+              "status": "Completed"
+            },
+            "rosbag": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:03:50.107545+00:00",
+              "status": "Pending"
+            },
+            "conversion": {
+              "error_log_name": "",
+              "updated_at": "2024-07-10T05:04:30.979145+00:00",
+              "status": "InProgress"
+            },
+            "statistics": {
+              "error_log_name": [],
+              "updated_at": "2024-07-10T05:03:50.107545+00:00",
+              "status": "Pending"
+            }
+          },
+          "folder_name": "20220323_213053",
+          "rec_year_month_date": "20220323",
+          "vehicle_id": "41"
+        }
+      },
+
+so we have to write a query to get rec_year_month_date for the respective drive sessions index for each project.
+once we get the rec_year_month_date for each projects then we have to format in the YYYY-DD-MM format and send it in the response.  
