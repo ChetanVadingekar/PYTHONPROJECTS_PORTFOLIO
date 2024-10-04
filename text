@@ -1,177 +1,89 @@
-I have below utility function,
+we have opensearch_utility.py so basically we write code for opensearch here only. 
 
-def format_project_details(projects: list) -> list:
+class OpenSearchEventStatisticsUtility:
     """
-    Rearrange the projects based on region.
+    A utility class for creating and executing OpenSearch queries.
 
-    Args:
-        projects (list): Lookup table project items
-
-    Returns:
-        list: Formatted project details
+    Attributes:
+        index_name (str): The name of the OpenSearch index to query.
+        input_data (list): The input data containing categories and
+        include lists for aggregation.
     """
-    data: dict = {}
-    for project in projects:
-        name = project.get("project_name")
-        country_code = project.get("country_code", "JP").upper()
 
-        # if country_code is an empty string
-        if not country_code:
-            country_code = "JP"
+    def __init__(
+        self: OpenSearchEventStatisticsUtilityVar,
+        index_name: str,
+        input_data: dict[str, dict[str, Any]],
+    ) -> None:
+        """
+        Initialize the OpenSearchEventStatisticsUtility variables.
 
-        generation_name = project.get("generation_name", "Gen1").capitalize()
-        model_name = project.get("model_name", "PADAS").upper()
-        drive_session_table_name = project.get("drive_session_table_name","")
-        version = f"Gen{generation_name} {model_name}"
+        Args:
+            index_name (str): The name of the OpenSearch index.
+            input_data (list): The input data for creating queries.
+        """
+        self.index_name = index_name
+        self.input_data = input_data
 
-        project_info = {
-            "project_name": name, 
-            "version": version, 
-            "drive_session_index_name": drive_session_table_name
+    def create_query(
+        self: OpenSearchEventStatisticsUtilityVar,
+    ) -> dict[str, Any]:
+        """
+        Create an OpenSearch query based on the input data.
+
+        Returns:
+            dict: The OpenSearch query.
+        """
+        query: dict[str, Any] = {
+            "size": 0,
+            "query": {
+                "bool": {"filter": [{"term": {"split_status": "SUCCESS"}}]}
+            },
+            "aggs": {},
         }
 
-        if country_code in data:
-            data[country_code]["projects"].append(project_info)
-        else:
-            data[country_code] = {"projects": [project_info]}
+        for category_name, category_details in self.input_data.items():
+            include_list = category_details.get('dropdown_values', [])
+            query["aggs"][category_name] = self.create_aggregation(
+                include_list
+            )
+        return query
 
-    formatted_data = []
-    for country in data:
-        country_details = get_country_details(country_code=country)
+    def create_aggregation(
+        self: OpenSearchEventStatisticsUtilityVar, include_list: list
+    ) -> dict:
+        """
+        Create an aggregation clause for the OpenSearch query.
 
-        # Default setting the country_details to Japan
-        country_name = country_details.get("country_name", "Japan")
-        center_point = country_details.get(
-            "center_point", ["36.204824", "138.252924"]
-        )
+        Args:
+            include_list (list): list of terms to include in the aggregation.
 
-        formatted_projects =[
-            {key: value for key, value in project.items() if key != "drive_session_index_name"}
-            for project in data[country]["projects"]
-        ]
-
-        data_dict = {
-            "country": country_name,
-            "latlng": center_point,
-            "projects": formatted_projects,
+        Returns:
+            dict: The aggregation clause.
+        """
+        return {
+            "terms": {"field": "tags", "include": include_list, "size": 100}
         }
-        formatted_data.append(data_dict)
 
-    return formatted_data
+    def search(
+        self: OpenSearchEventStatisticsUtilityVar, index_name: str
+    ) -> dict:
+        """
+        Execute an OpenSearch query on the given index.
 
-FYI data variable has this below data,
+        Args:
+            index_name (str): The name of the OpenSearch index.
 
-{
-  "US": {
-    "projects": [
-      {
-        "project_name": "us-project-01",
-        "version": "Gen1.0 EADAS",
-        "drive_session_index_name": "adcp-us-project-01-drive-data"
-      }
-    ]
-  },
-  "JP": {
-    "projects": [
-      {
-        "project_name": "automation",
-        "version": "Gen1.0 MODEL_10",
-        "drive_session_index_name": "automation-test-drive-data"
-      },
-      {
-        "project_name": "dev-test-cli-02",
-        "version": "Gen1.0 MODEL_10",
-        "drive_session_index_name": "adcp-dev-test-cli-02-drive-data"
-      },
-      {
-        "project_name": "gen3-fot",
-        "version": "Gen3.0 MODEL_10",
-        "drive_session_index_name": "adcp-gen3-fot-drive-data"
-      },
-      {
-        "project_name": "dev",
-        "version": "Gen1.0 MODEL-10",
-        "drive_session_index_name": "dev-drive-data"
-      }
-    ]
-  },
-  "EU": {
-    "projects": [
-      {
-        "project_name": "eb-test",
-        "version": "Gen3.0 MODEL_10",
-        "drive_session_index_name": "adcp-eb-test-drive-data"
-      }
-    ]
-  }
-}
+        Returns:
+            dict: The response from the OpenSearch query.
+        """
+        if client.indices.exists(index=index_name):
+            query = self.create_query()
+            response = client.search(index=index_name, body=query)
+            return response
 
-and the formatted output is below,
+        return {}
 
-{
-    "data": [
-        {
-            "country": "United States",
-            "latlng": [
-                "37.09024",
-                "-95.712891"
-            ],
-            "projects": [
-                {
-                    "project_name": "us-project-01",
-                    "version": "Gen1.0 EADAS"
-                }
-            ]
-        },
-        {
-            "country": "Japan",
-            "latlng": [
-                "36.204824",
-                "138.252924"
-            ],
-            "projects": [
-                {
-                    "project_name": "automation",
-                    "version": "Gen1.0 MODEL_10"
-                },
-                {
-                    "project_name": "dev-test-cli-02",
-                    "version": "Gen1.0 MODEL_10"
-                },
-                {
-                    "project_name": "gen3-fot",
-                    "version": "Gen3.0 MODEL_10"
-                },
-                {
-                    "project_name": "dev",
-                    "version": "Gen1.0 MODEL-10"
-                }
-            ]
-        },
-        {
-            "country": "Europe",
-            "latlng": [
-                "51.165700",
-                "10.451500"
-            ],
-            "projects": [
-                {
-                    "project_name": "eb-test",
-                    "version": "Gen3.0 MODEL_10"
-                }
-            ]
-        }
-    ],
-    "message": "Fetched projects from lookup table"
-}
 
-now in data we have drive_session_index_name for each projects.
-How get_country_details fetch using for loop likewise we get the rec_year_month_date. 
-once we get that we can format it as per YYYY-DD-MM and we can append in into formatted_data for each project. 
-
-Corener cases:
-
-if the drive session index doesn't created for the perticular project. send the message index not found 404
-if we have index but the rec_year_month_date is not present for the respective index. send it empty in a response.   
-
-update the code as per the requirement.
+likewise can we write a class for to get the rec_year_month_date for resptive drive session index.
+above code just for your reference. 
