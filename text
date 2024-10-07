@@ -1,7 +1,197 @@
-from datetime import datetime
+In main.py i have this API see below,
 
-rec_year_month_date = "20240731"
+@app.route("/get-project-details", methods=["GET"])
+def fetch_projects_info() -> ResponseReturnValue:
+    """
+    Get the projects information to render on home page.
 
-formatted_date_obj = datetime.strptime(rec_year_month_date,"%Y%m%d").strftime("%Y-%d-%m")
+    Returns:
+        (ResponseReturnValue): list of events.
+    """
+    projection_attributes = [
+        "project_name",
+        "country_code",
+        "generation_name",
+        "model_name",
+        "drive_session_table_name",
+    ]
+    try:
+        response = lookup_table.scan(
+            ProjectionExpression=",".join(projection_attributes)
+        )
 
-print(formatted_date_obj)
+        projects = response.get("Items", [])
+
+        while response.get("LastEvaluatedKey"):
+            response = lookup_table.scan(
+                ProjectionExpression=",".join(projection_attributes),
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            if response.get("Items"):
+                projects.extend(response.get("Items"))  # type: ignore
+
+        if not projects:
+            message = "No projects found in lookup table for home page listing"
+            logging.info(message)
+            return jsonify({"data": [], "message": message}), 200
+
+        response_data = format_project_details(projects)
+
+        return (
+            jsonify(
+                {
+                    "data": response_data,
+                    "message": "Fetched projects from lookup table",
+                }
+            ),
+            200,
+        )
+
+    except ClientError as err:
+        message = err.response['Error']['Message']
+        code = err.response['Error']['Code']
+
+        if code == "ResourceNotFoundException":
+            message = f"DynamoDB Table {LOOKUP_TABLE} not found"
+            logging.error(message)
+            status_code = 404
+        else:
+            logging.error(f"Unhandled Exception: {code}:{message}")
+            status_code = 500
+
+        return jsonify({"message": message, "error_code": code}), status_code
+
+
+in utility.py i have this utility function see below,
+
+def format_project_details(projects: list) -> list:
+    """
+    Rearrange the projects based on region.
+
+    Args:
+        projects (list): Lookup table project items
+
+    Returns:
+        list: Formatted project details
+    """
+    data: dict = {}
+    for project in projects:
+        name = project.get("project_name")
+        country_code = project.get("country_code", "JP").upper()
+
+        # if country_code is an empty string
+        if not country_code:
+            country_code = "JP"
+
+        generation_name = project.get("generation_name", "Gen1").capitalize()
+        model_name = project.get("model_name", "PADAS").upper()
+        drive_session_index_name = project.get("drive_session_table_name","adcp-gen3-fot-drive-data")
+        version = f"Gen{generation_name} {model_name}"
+        search_obj = OpenSearchDriveSessionUtility(drive_session_index_name)
+        rec_year_month_date = search_obj.get_rec_year_month_date()
+        formatted_date_obj = datetime.strptime(rec_year_month_date,"%Y%m%d").strftime("%Y-%d-%m")
+        project_info = {
+            "project_name": name, 
+            "version": version, 
+            "rec_year_month_date": formatted_date_obj
+        }
+
+        if country_code in data:
+            data[country_code]["projects"].append(project_info)
+        else:
+            data[country_code] = {"projects": [project_info]}
+
+    formatted_data = []
+    for country in data:
+        country_details = get_country_details(country_code=country)
+
+        # Default setting the country_details to Japan
+        country_name = country_details.get("country_name", "Japan")
+        center_point = country_details.get(
+            "center_point", ["36.204824", "138.252924"]
+        )
+        data_dict = {
+            "country": country_name,
+            "latlng": center_point,
+            "projects": data[country]["projects"],
+        }
+        formatted_data.append(data_dict)
+
+    return formatted_data
+
+
+in opesearch_utility.py i have a class see below,
+
+class OpenSearchDriveSessionUtility:
+    """
+    A utility class for querying OpenSearch to retrieve the most recent 'rec_year_month_date' 
+    for drive session indexes.
+
+    Attributes:
+        index_name (str): The name of the OpenSearch drive session index to query.
+    """
+
+    def __init__(self, index_name: str) -> None:
+        """
+        Initialize the OpenSearchDriveSessionUtility.
+
+        Args:
+            index_name (str): The name of the OpenSearch drive session index.
+        """
+        self.index_name = index_name
+
+    def create_query(self) -> dict[str, Any]:
+        """
+        Create an OpenSearch query to fetch the most recent `rec_year_month_date`.
+
+        Returns:
+            dict: The OpenSearch query.
+        """
+        query: dict[str, Any] = {
+            "size": 1,  
+            "_source": ["rec_year_month_date"],
+            "sort": [
+                {"rec_year_month_date": {"order": "desc"}}
+            ],
+            "query": {
+                "match_all": {}
+            }
+        }
+        return query
+    
+    def get_rec_year_month_date(self) -> str:
+        """
+        Execute an OpenSearch query on the drive session index to get the
+        most recent "rec_year_month_date".
+        
+        Returns:
+            str: The most recent `rec_year_month_date` if found.
+            or empty response if the index doesn't exist.
+        """
+        if client.indices.exists(index=self.index_name):
+            query = self.create_query()
+            response = client.search(index=self.index_name, body=query)
+
+            if response['hits']['hits']:
+                rec_year_month_date = response['hits']['hits'][0]['_source'].get('rec_year_month_date') 
+                return rec_year_month_date if rec_year_month_date else "NA"
+            else:
+                return "NA"
+        else:
+            return "NA"
+
+but when i ran python main.py i get the below errors,
+
+Traceback (most recent call last):
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/main.py", line 32, in <module>
+    from import_label_report_utility import LabelReport  # type: ignore
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/import_label_report_utility.py", line 21, in <module>
+    from opensearch_utility import OpenSearchQueryUtility  # type: ignore
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/opensearch_utility.py", line 27, in <module>
+    from utility import get_db_client  # type: ignore
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/utility.py", line 43, in <module>
+    from opensearch_utility import OpenSearchDriveSessionUtility  # type: ignore
+ImportError: cannot import name 'OpenSearchDriveSessionUtility' from partially initialized module 'opensearch_utility' (most likely due to a circular import) (/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/opensearch_utility.py)
+
+
+How to fix this issue?
