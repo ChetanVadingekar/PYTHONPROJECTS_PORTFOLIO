@@ -1,166 +1,4 @@
-We want to update the existing test cases so i am providing you some code to refer see below.
-
-lookup_data = [
-      {
-        "bucket_name": "testprefix6-project-name-raw-bucket",
-        "project_name": "no-index-tables",
-        "bucket_arn": "arn:aws:s3:::testprefix6-project-name-raw-bucket",
-        "company_name": "honda",
-        "country_code": "jp",
-        "country_name": "japan",
-        "drive_session_table_name": "",
-        "event_session_table_name": "",
-        "generation_name": "1.1",
-        "merged_bucket_name": "testprefix6-project-name-merged-bucket",
-        "model_name": "EADAS",
-        "organization_name": "as4",
-        "parquet_bucket_name": "testprefix6-project-name-parquet-bucket",
-        "pid": "a3197b70-df08-4344-850a-3b23890e8c0c",
-        "prefix": "testprefix5",
-        "raw_bucket_name": "testprefix6-project-name-raw-bucket",
-        "region": "ap-northeast-1",
-        "ros_bucket_name": "testprefix6-project-name-ros-bucket",
-        "s3_access_role_arn": "AWSDataSyncS3Role_testprefix6-project-name-raw-bucket",
-        "suffix": "raw-bucket"
-    },
-    {
-        "bucket_name": "dummy-project-raw-bucket",
-        "project_name": "dummy-project",
-        "bucket_arn": "arn:aws:s3:::dummy-project-raw-bucket",
-        "company_name": "honda",
-        "country_code": "jp",
-        "country_name": "japan",
-        "wrong_drive_session_table_name": "dummy-project-drive-data",
-        "wrong_event_session_table_name": "dummy-project-event-data",
-        "generation_name": "generation 1.1",
-        "merged_bucket_name": "dummy-project-merged-bucket",
-        "model_name": "model_10",
-        "organization_name": "as4",
-        "parquet_bucket_name": "dummy-project-parquet-bucket",
-        "pid": "a3197b70-df08-4344-850a-3b23890e8c0c",
-        "prefix": "test2",
-        "raw_bucket_name": "dummy-project-raw-bucket",
-        "region": "ap-northeast-1",
-        "ros_bucket_name": "dummy-project-ros-bucket",
-        "s3_access_role_arn": "AWSDataSyncS3Role_dummy-project_raw-bucket",
-        "suffix": "raw-bucket"
-    }
-  ]
-
-
-@mock_aws
-def test_get_project_details_success_response(cloudwatch_log_client,
-                                               ssm_client, dynamodb_resource):
-    """Test API success 200 response"""
-    put_parameter_store_config(ssm_client, ENV)
-
-    create_global_map_details_table(dynamodb_resource)
-    countries_table = dynamodb_resource.Table(MAP_DETAILS_TABLE_NAME)
-    insert_items_into_global_table(countries_table)
-
-    create_users_table(dynamodb_resource)   
-    user_table = dynamodb_resource.Table(USER_TABLE_NAME)
-    insert_items_into_users_table(user_table)
-
-    create_lookup_table(dynamodb_resource)
-    lookup_table = dynamodb_resource.Table(LOOKUP_TABLE_NAME)
-    insert_items_into_lookup_table(lookup_table)
-    
-    create_cloudwatch_log_group(
-        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
-        
-    with patch('utility.get_db_client') as mock_db_client:
-        mock_db_client.return_value = OS_DB_CLIENT
-        
-        from main import app
-        app.config['TESTING'] = True
-        with app.test_client() as client:
-            client.set_cookie(key="user_id", value="101")
-            response = client.get(
-                f"/get-project-details"
-            )
-
-            print(f"response: {response}")
-            assert response.status_code == 200
-            assert response.json['message'] == "Fetched projects from " \
-                                                "lookup table"
-            assert len(response.json["data"]) == 3
-
-            for grouped_data in response.json["data"]:
-                country = grouped_data["country"]
-                if country == "Japan":
-                    assert len(grouped_data["projects"]) == 7
-                else:
-                    assert len(grouped_data["projects"]) == 1
-
-    delete_cloudwatch_log_group(cloudwatch_log_client, 
-                                CLOUDWATCH_LOG_GROUP_NAME)
-
-In main.py i have this API see below,
-
-@app.route("/get-project-details", methods=["GET"])
-def fetch_projects_info() -> ResponseReturnValue:
-    """
-    Get the projects information to render on home page.
-
-    Returns:
-        (ResponseReturnValue): list of events.
-    """
-    projection_attributes = [
-        "project_name",
-        "country_code",
-        "generation_name",
-        "model_name",
-        "drive_session_table_name",
-    ]
-    try:
-        response = lookup_table.scan(
-            ProjectionExpression=",".join(projection_attributes)
-        )
-
-        projects = response.get("Items", [])
-
-        while response.get("LastEvaluatedKey"):
-            response = lookup_table.scan(
-                ProjectionExpression=",".join(projection_attributes),
-                ExclusiveStartKey=response["LastEvaluatedKey"],
-            )
-            if response.get("Items"):
-                projects.extend(response.get("Items"))  # type: ignore
-
-        if not projects:
-            message = "No projects found in lookup table for home page listing"
-            logging.info(message)
-            return jsonify({"data": [], "message": message}), 200
-
-        response_data = format_project_details(projects)
-
-        return (
-            jsonify(
-                {
-                    "data": response_data,
-                    "message": "Fetched projects from lookup table",
-                }
-            ),
-            200,
-        )
-
-    except ClientError as err:
-        message = err.response['Error']['Message']
-        code = err.response['Error']['Code']
-
-        if code == "ResourceNotFoundException":
-            message = f"DynamoDB Table {LOOKUP_TABLE} not found"
-            logging.error(message)
-            status_code = 404
-        else:
-            logging.error(f"Unhandled Exception: {code}:{message}")
-            status_code = 500
-
-        return jsonify({"message": message, "error_code": code}), status_code
-
-
-in utility.py i have this utility function see below,
+utility.py i have this utility function see below,
 
 def format_project_details(projects: list) -> list:
     """
@@ -172,6 +10,8 @@ def format_project_details(projects: list) -> list:
     Returns:
         list: Formatted project details
     """
+    from opensearch_utility import OpenSearchDriveSessionUtility  # type: ignore
+
     data: dict = {}
     for project in projects:
         name = project.get("project_name")
@@ -184,14 +24,19 @@ def format_project_details(projects: list) -> list:
         generation_name = project.get("generation_name", "Gen1").capitalize()
         model_name = project.get("model_name", "PADAS").upper()
         drive_session_index_name = project.get("drive_session_table_name","adcp-gen3-fot-drive-data")
+        if not drive_session_index_name:
+            continue
         version = f"Gen{generation_name} {model_name}"
         search_obj = OpenSearchDriveSessionUtility(drive_session_index_name)
         rec_year_month_date = search_obj.get_rec_year_month_date()
-        formatted_date_obj = datetime.strptime(rec_year_month_date,"%Y%m%d").strftime("%Y-%d-%m")
+        
+        if rec_year_month_date != "NA":
+            rec_year_month_date = datetime.strptime(rec_year_month_date,"%Y%m%d").strftime("%Y-%m-%d")
+        
         project_info = {
             "project_name": name, 
             "version": version, 
-            "rec_year_month_date": formatted_date_obj
+            "rec_year_month_date": rec_year_month_date
         }
 
         if country_code in data:
@@ -216,7 +61,6 @@ def format_project_details(projects: list) -> list:
         formatted_data.append(data_dict)
 
     return formatted_data
-
 
 in opesearch_utility.py i have a class see below,
 
@@ -278,8 +122,9 @@ class OpenSearchDriveSessionUtility:
         else:
             return "NA"
 
-when i ran this test_get_project_details_success_response test case it got failed and i am getting below error.
 
-tests/test_main.py::test_get_project_details_success_response - ValueError: Empty value passed for a required argument 'index'.
-
-how to fix this issue??
+So basically i want to write a test case for format_details_projects function.
+most of the function coverage is covered due to there is one route in main.py so we written test case for that route.but  
+if rec_year_month_date != "NA":
+            rec_year_month_date = datetime.strptime(rec_year_month_date,"%Y%m%d").strftime("%Y-%m-%d")
+this code is not covered please write test case for this function.
