@@ -1,76 +1,121 @@
 import unittest
 from unittest.mock import patch
-from datetime import datetime
-from your_module import format_project_details  # Import the function from your module
+from opensearch_utility import OpenSearchDriveSessionUtility
 
-class TestFormatProjectDetails(unittest.TestCase):
-    
-    @patch('your_module.OpenSearchDriveSessionUtility')  # Patch the utility class
-    @patch('your_module.get_country_details')  # Patch the get_country_details function
-    def test_format_project_details_with_valid_rec_year_month_date(self, mock_get_country_details, mock_opensearch_utility):
+
+class TestOpenSearchDriveSessionUtility(unittest.TestCase):
+    """
+    Test cases for the OpenSearchDriveSessionUtility class.
+    This class contains unit tests for creating OpenSearch queries
+    and retrieving the 'rec_year_month_date' from an OpenSearch index.
+    """
+
+    def test_create_query(self):
         """
-        Test case for when `rec_year_month_date` is a valid date string and needs to be formatted.
+        Test that the create_query method constructs the correct OpenSearch query
+        to fetch the most recent 'rec_year_month_date'.
         """
-        # Mocking the response of OpenSearchDriveSessionUtility's get_rec_year_month_date method
-        mock_opensearch_utility.return_value.get_rec_year_month_date.return_value = "20240101"
+        # Create an instance of the utility with a sample index name
+        utility = OpenSearchDriveSessionUtility(index_name="test_index")
 
-        # Mocking the response of get_country_details to avoid dependency on external service
-        mock_get_country_details.return_value = {
-            "country_name": "Japan",
-            "center_point": ["36.204824", "138.252924"]
-        }
+        # Call the create_query method
+        query = utility.create_query()
 
-        # Input data for the function
-        projects = [{
-            "project_name": "Test Project",
-            "country_code": "JP",
-            "generation_name": "gen3",
-            "model_name": "ADAS",
-            "drive_session_table_name": "test-drive-session-table"
-        }]
-        
-        # Call the function under test
-        result = format_project_details(projects)
+        # Assert the structure of the created query
+        self.assertEqual(query, {
+            "size": 1,
+            "_source": ["rec_year_month_date"],
+            "sort": [
+                {"rec_year_month_date": {"order": "desc"}}
+            ],
+            "query": {
+                "match_all": {}
+            }
+        })
 
-        # Expected date after formatting
-        expected_date = datetime.strptime("20240101", "%Y%m%d").strftime("%Y-%m-%d")
-
-        # Validate the result
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["country"], "Japan")
-        self.assertEqual(result[0]["projects"][0]["rec_year_month_date"], expected_date)
-
-    @patch('your_module.OpenSearchDriveSessionUtility')  # Patch the utility class
-    @patch('your_module.get_country_details')  # Patch the get_country_details function
-    def test_format_project_details_with_na_rec_year_month_date(self, mock_get_country_details, mock_opensearch_utility):
+    def test_get_rec_year_month_date_with_existing_index(self):
         """
-        Test case for when `rec_year_month_date` is 'NA' and should not be formatted.
+        Test that the get_rec_year_month_date method retrieves the most recent
+        'rec_year_month_date' from an existing index when the index exists and 
+        contains valid data.
         """
-        # Mocking the response of OpenSearchDriveSessionUtility's get_rec_year_month_date method
-        mock_opensearch_utility.return_value.get_rec_year_month_date.return_value = "NA"
+        # Use with statement to mock indices.exists and client.search
+        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
+             patch("opensearch_utility.client.search") as mock_search:
 
-        # Mocking the response of get_country_details to avoid dependency on external service
-        mock_get_country_details.return_value = {
-            "country_name": "Japan",
-            "center_point": ["36.204824", "138.252924"]
-        }
+            # Mock the client.indices.exists to return True (index exists)
+            mock_exists.return_value = True
 
-        # Input data for the function
-        projects = [{
-            "project_name": "Test Project",
-            "country_code": "JP",
-            "generation_name": "gen3",
-            "model_name": "ADAS",
-            "drive_session_table_name": "test-drive-session-table"
-        }]
-        
-        # Call the function under test
-        result = format_project_details(projects)
+            # Mock the client.search response to include a rec_year_month_date
+            mock_search.return_value = {
+                'hits': {
+                    'hits': [
+                        {
+                            '_source': {
+                                'rec_year_month_date': '20240115'
+                            }
+                        }
+                    ]
+                }
+            }
 
-        # Validate the result
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["country"], "Japan")
-        self.assertEqual(result[0]["projects"][0]["rec_year_month_date"], "NA")
+            # Create an instance of the utility with a sample index name
+            utility = OpenSearchDriveSessionUtility(index_name="test_index")
 
-if __name__ == "__main__":
+            # Call the get_rec_year_month_date method
+            rec_date = utility.get_rec_year_month_date()
+
+            # Assert that the returned date matches the mock response
+            self.assertEqual(rec_date, "20240115")
+
+    def test_get_rec_year_month_date_with_no_date(self):
+        """
+        Test that the get_rec_year_month_date method returns 'NA' when the index exists,
+        but no 'rec_year_month_date' is found in the search response.
+        """
+        # Use with statement to mock indices.exists and client.search
+        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
+             patch("opensearch_utility.client.search") as mock_search:
+
+            # Mock the client.indices.exists to return True (index exists)
+            mock_exists.return_value = True
+
+            # Mock the client.search response with no hits
+            mock_search.return_value = {
+                'hits': {
+                    'hits': []
+                }
+            }
+
+            # Create an instance of the utility with a sample index name
+            utility = OpenSearchDriveSessionUtility(index_name="test_index")
+
+            # Call the get_rec_year_month_date method
+            rec_date = utility.get_rec_year_month_date()
+
+            # Assert that "NA" is returned when no rec_year_month_date is found
+            self.assertEqual(rec_date, "NA")
+
+    def test_get_rec_year_month_date_with_non_existing_index(self):
+        """
+        Test that the get_rec_year_month_date method returns 'NA' when the index does
+        not exist (i.e., the index is not found in OpenSearch).
+        """
+        # Use with statement to mock indices.exists
+        with patch("opensearch_utility.client.indices.exists") as mock_exists:
+
+            # Mock the client.indices.exists to return False (index does not exist)
+            mock_exists.return_value = False
+
+            # Create an instance of the utility with a sample index name
+            utility = OpenSearchDriveSessionUtility(index_name="test_index")
+
+            # Call the get_rec_year_month_date method
+            rec_date = utility.get_rec_year_month_date()
+
+            # Assert that "NA" is returned when the index does not exist
+            self.assertEqual(rec_date, "NA")
+
+
+if __name__ == '__main__':
     unittest.main()
