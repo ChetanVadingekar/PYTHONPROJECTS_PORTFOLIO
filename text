@@ -1,121 +1,40 @@
-import unittest
-from unittest.mock import patch
-from opensearch_utility import OpenSearchDriveSessionUtility
-
-
-class TestOpenSearchDriveSessionUtility(unittest.TestCase):
+@app.route('/fetch-filter-attributes-v2', methods=['GET'])
+def get_filter_attributes_v2() -> ResponseReturnValue:
     """
-    Test cases for the OpenSearchDriveSessionUtility class.
-    This class contains unit tests for creating OpenSearch queries
-    and retrieving the 'rec_year_month_date' from an OpenSearch index.
+    Fetch filter options from dynamoDB table - version 2.
+
+    Returns:
+        (ResponseReturnValue): filter options list and status code.
     """
-
-    def test_create_query(self):
-        """
-        Test that the create_query method constructs the correct OpenSearch query
-        to fetch the most recent 'rec_year_month_date'.
-        """
-        # Create an instance of the utility with a sample index name
-        utility = OpenSearchDriveSessionUtility(index_name="test_index")
-
-        # Call the create_query method
-        query = utility.create_query()
-
-        # Assert the structure of the created query
-        self.assertEqual(query, {
-            "size": 1,
-            "_source": ["rec_year_month_date"],
-            "sort": [
-                {"rec_year_month_date": {"order": "desc"}}
-            ],
-            "query": {
-                "match_all": {}
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        generation = request.args.get('generation')
+        response = filter_attributes_table.get_item(
+            Key={'page': page, 'filter_level': filter_level}
+        )
+        if page == "event_sessions":
+            common_attributes = response['Item']['common_attributes']
+            gen_attributes = response['Item'][f'gen_attributes_{generation}']
+            final_response = {
+                **common_attributes,  # type: ignore
+                **gen_attributes,  # type: ignore
             }
-        })
-
-    def test_get_rec_year_month_date_with_existing_index(self):
-        """
-        Test that the get_rec_year_month_date method retrieves the most recent
-        'rec_year_month_date' from an existing index when the index exists and 
-        contains valid data.
-        """
-        # Use with statement to mock indices.exists and client.search
-        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
-             patch("opensearch_utility.client.search") as mock_search:
-
-            # Mock the client.indices.exists to return True (index exists)
-            mock_exists.return_value = True
-
-            # Mock the client.search response to include a rec_year_month_date
-            mock_search.return_value = {
-                'hits': {
-                    'hits': [
-                        {
-                            '_source': {
-                                'rec_year_month_date': '20240115'
-                            }
-                        }
-                    ]
-                }
-            }
-
-            # Create an instance of the utility with a sample index name
-            utility = OpenSearchDriveSessionUtility(index_name="test_index")
-
-            # Call the get_rec_year_month_date method
-            rec_date = utility.get_rec_year_month_date()
-
-            # Assert that the returned date matches the mock response
-            self.assertEqual(rec_date, "20240115")
-
-    def test_get_rec_year_month_date_with_no_date(self):
-        """
-        Test that the get_rec_year_month_date method returns 'NA' when the index exists,
-        but no 'rec_year_month_date' is found in the search response.
-        """
-        # Use with statement to mock indices.exists and client.search
-        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
-             patch("opensearch_utility.client.search") as mock_search:
-
-            # Mock the client.indices.exists to return True (index exists)
-            mock_exists.return_value = True
-
-            # Mock the client.search response with no hits
-            mock_search.return_value = {
-                'hits': {
-                    'hits': []
-                }
-            }
-
-            # Create an instance of the utility with a sample index name
-            utility = OpenSearchDriveSessionUtility(index_name="test_index")
-
-            # Call the get_rec_year_month_date method
-            rec_date = utility.get_rec_year_month_date()
-
-            # Assert that "NA" is returned when no rec_year_month_date is found
-            self.assertEqual(rec_date, "NA")
-
-    def test_get_rec_year_month_date_with_non_existing_index(self):
-        """
-        Test that the get_rec_year_month_date method returns 'NA' when the index does
-        not exist (i.e., the index is not found in OpenSearch).
-        """
-        # Use with statement to mock indices.exists
-        with patch("opensearch_utility.client.indices.exists") as mock_exists:
-
-            # Mock the client.indices.exists to return False (index does not exist)
-            mock_exists.return_value = False
-
-            # Create an instance of the utility with a sample index name
-            utility = OpenSearchDriveSessionUtility(index_name="test_index")
-
-            # Call the get_rec_year_month_date method
-            rec_date = utility.get_rec_year_month_date()
-
-            # Assert that "NA" is returned when the index does not exist
-            self.assertEqual(rec_date, "NA")
-
-
-if __name__ == '__main__':
-    unittest.main()
+        else:
+            final_response = response['Item']['attributes']  # type: ignore
+        logging.info(
+            f"dynamoDB response for fetching filter " f"attributes: {response}"
+        )
+        return (
+            jsonify(final_response),  # type: ignore
+            200,
+        )
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return (
+            jsonify({'message': "No generation category information found"}),
+            404,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
