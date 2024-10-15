@@ -51,4 +51,7 @@ dashboard/backend/main.py:594: error: Argument 1 to "float" has incompatible typ
 Found 3 errors in 1 file (checked 4 source files)
 Success: no issues found in 3 source files
 
+dashboard/backend/main.py:594: error: Incompatible types in assignment (expression has type "float", variable has type "Optional[str]")  [assignment]
+Found 1 error in 1 file (checked 4 source files)
+
 Please fix it. 
