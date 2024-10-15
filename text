@@ -17,7 +17,7 @@ def get_filter_attributes_v2() -> ResponseReturnValue:
         if page == "event_sessions":
             generation = request.args.get('generation')
             if generation.isdigit():
-                generation = float(generation)
+                generation = str(float(generation))
             common_attributes = response['Item']['common_attributes']
             gen_attributes = response['Item'][f'gen_attributes_{generation}']
             final_response = {
@@ -46,12 +46,8 @@ def get_filter_attributes_v2() -> ResponseReturnValue:
 While doing the static code analysis I am getting below errors,
 
 dashboard/backend/main.py:593: error: Item "None" of "Optional[str]" has no attribute "isdigit"  [union-attr]
-dashboard/backend/main.py:594: error: Incompatible types in assignment (expression has type "float", variable has type "Optional[str]")  [assignment]
 dashboard/backend/main.py:594: error: Argument 1 to "float" has incompatible type "Optional[str]"; expected "Union[str, Buffer, SupportsFloat, SupportsIndex]"  [arg-type]
-Found 3 errors in 1 file (checked 4 source files)
+Found 2 errors in 1 file (checked 4 source files)
 Success: no issues found in 3 source files
-
-dashboard/backend/main.py:594: error: Incompatible types in assignment (expression has type "float", variable has type "Optional[str]")  [assignment]
-Found 1 error in 1 file (checked 4 source files)
 
 Please fix it. 
