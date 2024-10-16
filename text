@@ -1,53 +1,5 @@
-I have this API see below,
+I would like to request leave from 16th December to 24th December as I will be travelling for my brother's wedding, followed by a family vacation that has been planned for this period.
+I would appreciate your understanding in approving this request. 
+I will ensure that all my work is completed before I go on leave.
 
-@app.route('/fetch-filter-attributes-v2', methods=['GET'])
-def get_filter_attributes_v2() -> ResponseReturnValue:
-    """
-    Fetch filter options from dynamoDB table - version 2.
-
-    Returns:
-        (ResponseReturnValue): filter options list and status code.
-    """
-    try:
-        page = request.args.get('page')
-        filter_level = request.args.get('filter_level')
-        response = filter_attributes_table.get_item(
-            Key={'page': page, 'filter_level': filter_level}
-        )
-        if page == "event_sessions":
-            generation = request.args.get('generation')
-            if generation.isdigit():
-                generation = str(float(generation))
-            common_attributes = response['Item']['common_attributes']
-            gen_attributes = response['Item'][f'gen_attributes_{generation}']
-            final_response = {
-                **common_attributes,  # type: ignore
-                **gen_attributes,  # type: ignore
-            }
-        else:
-            final_response = response['Item']['attributes']  # type: ignore
-        logging.info(
-            f"dynamoDB response for fetching filter " f"attributes: {response}"
-        )
-        return (
-            jsonify(final_response),  # type: ignore
-            200,
-        )
-    except KeyError as e:
-        logging.error("KeyError occurred: %s", str(e))
-        return (
-            jsonify({'message': "No generation category information found"}),
-            404,
-        )
-    except Exception as e:
-        logging.exception(f"An error occurred: {str(e)}")
-        return jsonify({"message": str(e)}), 500
-
-While doing the static code analysis I am getting below errors,
-
-dashboard/backend/main.py:593: error: Item "None" of "Optional[str]" has no attribute "isdigit"  [union-attr]
-dashboard/backend/main.py:594: error: Argument 1 to "float" has incompatible type "Optional[str]"; expected "Union[str, Buffer, SupportsFloat, SupportsIndex]"  [arg-type]
-Found 2 errors in 1 file (checked 4 source files)
-Success: no issues found in 3 source files
-
-Please fix it. 
+Thank you for your understanding and support.
