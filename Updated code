@@ -1,42 +1,76 @@
-Please review the below code,
+I want to review this below API, please suggest comments. 
 
-def get_role_type(role_code: str) -> dict:
+
+@app.route('/users', methods=['GET'])
+def list_user() -> ResponseReturnValue:
     """
-    Summary: Fetches the role type from DynamoDB for the provided role code.
-
-    Args:
-        role_code (str): The role code to map to its role type.
+    Summary: List users based on project selected from Cognito user pool.
 
     Returns:
-        dict: Contains the role type ('role_type').
+        (ResponseReturnValue): JSON response with List of users and message.
     """
-    mapping = {
-        'R1001': 'admin',
-        'R1002': 'project_admin',
-        'R3001': 'data_engineer',
-        'R4001': 'external',
-        'R2001': 'guest',
-        'R5001': 'ticket_manager',
-    }
+    project_selected = request.args.get('projectselected')
+    if not project_selected:
+        return jsonify({'message': 'Project not specified', 'users': []}), 400
     try:
-        role_type = mapping.get(role_code)
-        print("role_code", role_code)
-        print("role_type", role_type)
-        if not role_type:
-            return {'error': 'Role type mapping not found'}
+        page_no = int(request.args.get('page_no', 1))
+        page_size = int(request.args.get('page_size', 10))
+        userid = request.args.get('userid')
+        start_index = (page_no - 1) * page_size
+        end_index = page_no * page_size
 
-        response = role_info_table.get_item(
-            Key={'role_code': role_code, 'type': role_type}
-        )
-        if 'Item' in response:
-            print({"role_type": response['Item'].get('name', 'Unknown')})
-            return {
-                'role_name': response['Item'].get('name', 'Unknown'),
-                'role_type': response['Item'].get('type', 'Unknown'),
+        USER_POOL_ID = get_user_pool_id()  # noqa: N806
+        response = cognito_client.list_users(UserPoolId=USER_POOL_ID)
+
+        users = []
+        for user in response['Users']:
+            attributes = {
+                attr['Name']: attr['Value'] for attr in user['Attributes']
             }
 
-        return {'error': 'Role code not found'}
-    except ClientError as e:
+            if 'custom:projects' in attributes:
+                project_list = ast.literal_eval(attributes['custom:projects'])
+                print("projectlist", project_list)
+                if project_selected in project_list:
+                    print("inrole_info")
+                    role_info = get_role_type(attributes['custom:role_code'])
+
+                    if 'error' in role_info:
+                        return jsonify({'message': role_info['error']}), 400
+
+                    role_name = role_info["role_name"]
+                    role_type = role_info["role_type"]
+                    attributes['custom:projects'] = attributes[
+                        'custom:projects'
+                    ].replace('"', "'")
+                    users.append(
+                        {
+                            "uid": user['Username'],
+                            "name": attributes['custom:name'],
+                            "emp_id": attributes['custom:emp_id'],
+                            "email": attributes['email'],
+                            "upn": attributes['custom:upn_str'],
+                            "projects": attributes['custom:projects'],
+                            "role_name": role_name,
+                            "role_type": role_type,
+                        }
+                    )
+        filtered_users = [user for user in users if user['uid'] != userid]
+
+        paginated_users = filtered_users[start_index:end_index]
+        if paginated_users:
+            return {
+                'data': paginated_users,
+                'message': '',
+                'total': len(filtered_users),
+            }, 200
         return {
-            'error': f"Error in role type: {e.response['Error']['Message']}"
-        }
+            'message': f'No users found for project {project_selected}',
+            'data': [],
+            'total': len(filtered_users),
+        }, 404
+    except ClientError as e:
+        print(f"Error in users: {e.response['Error']['Message']}")
+        return {
+            'message': f"Error in users: {e.response['Error']['Message']}"
+        }, 500
