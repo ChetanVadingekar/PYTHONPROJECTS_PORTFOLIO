@@ -1,79 +1,53 @@
-I have below function, please make this function genric 
-
-def get_ddb_table_names(db: str = "DDB", env: str = ENV) -> tuple:
+def get_ddb_table_names(db: str = "DDB", env: str = ENV, extra_params: list[str] = None) -> dict:
     """
-    Get table names from parameter store.
-
+    Get table names and optionally other parameters from parameter store.
     Args:
         db (str): db component name
         env (str): environment
-
+        extra_params (list): Optional list of additional parameters to fetch
     Returns:
-        (tuple): table names
+        dict: A dictionary containing table names and optionally other parameters
     """
     path = f"/{env}/{db}/"
-    lookup = ""
-    map_details = ""
-    filter_attr = ""
-    user_table = ""
-    userpool_id = ""
-    role_table = ""
+    parameters = {
+        "lookup": "",
+        "map_details": "",
+        "filter_attr": "",
+        "user_table": ""
+    }
+    
     ssm_client = boto3.client("ssm", region_name=REGION_NAME)
+    
     try:
+        # Fetch DDB table names
         response = ssm_client.get_parameters_by_path(
             Path=path, Recursive=True, WithDecryption=True
         )
         for param_info in response.get("Parameters", []):
             name = param_info.get("Name", "")
             if "LookupTable" in name:
-                lookup = param_info.get("Value", "")
+                parameters["lookup"] = param_info.get("Value", "")
             elif "FilterAttributesTable" in name:
-                filter_attr = param_info.get("Value", "")
+                parameters["filter_attr"] = param_info.get("Value", "")
             elif "MapDetailsTable" in name:
-                map_details = param_info.get("Value", "")
-
+                parameters["map_details"] = param_info.get("Value", "")
+        # Fetch User Table
         response = ssm_client.get_parameter(
-            Name=f"/{ENV}/UserManagement/DDB/UserTable"
+            Name=f"/{env}/UserManagement/DDB/UserTable"
         )
-
-        user_table = response["Parameter"]["Value"]
-
-        userpool_info = ssm_client.get_parameter(
-            Name=f"/{ENV}/UserManagement/Cognito/COGNITO_USERPOOL_ID"
-        )
-        userpool_id = userpool_info["Parameter"]["Value"]
-
-        role_table_info = ssm_client.get_parameter(
-            Name=f"/{ENV}/UserManagement/DDB/RoleTable"
-        )
-
-        role_table = role_table_info["Parameter"]["Value"]
-
+        parameters["user_table"] = response["Parameter"]["Value"]
+        # Fetch additional parameters if specified
+        if extra_params:
+            for param in extra_params:
+                response = ssm_client.get_parameter(Name=param)
+                param_name = param.split("/")[-1]  # Get the last part of the parameter path as key
+                parameters[param_name] = response["Parameter"]["Value"]
     except ssm_client.exceptions.ParameterNotFound:
-        logger.exception(
-            "Could not find the User Table parameter in Parameter Store"
-        )
-
+        logging.error("Could not find one or more parameters in Parameter Store")
     except ssm_client.exceptions.InternalServerError:
-        logger.exception("Error occurred while fetching table names")
-
-    logger.info(
-        "Parameters store: Lookup: %s, MapDetails: %s, "
-        "FilterAttr: %s, UserTable: %s, userpool_id : %s, role_table: %s"
-        % (
-            lookup,
-            map_details,
-            filter_attr,
-            user_table,
-            userpool_id,
-            role_table,
-        )
+        logging.error("Error occurred while fetching parameters")
+    logging.info(
+        "Parameters store: Lookup: %s, MapDetails: %s, FilterAttr: %s, UserTable: %s"
+        % (parameters["lookup"], parameters["map_details"], parameters["filter_attr"], parameters["user_table"])
     )
-    return (
-        lookup,
-        map_details,
-        filter_attr,
-        user_table,
-        userpool_id,
-        role_table,
-    )
+    return parameters
