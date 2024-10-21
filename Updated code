@@ -1,154 +1,46 @@
-I have old function,
+I have below api, I need to do code review please provide me the improvements comments 
 
-def get_ddb_table_names(db: str = "DDB", env: str = ENV) -> tuple:
+@app.route('/users', methods=['POST'])
+def add_user() -> ResponseReturnValue:
     """
-    Get table names from parameter store.
-
-    Args:
-        db (str): db component name
-        env (str): environment
+    Summary: Add user to the Cognito user pool.
 
     Returns:
-        (tuple): table names
+        (ResponseReturnValue): JSON response with message.
     """
-    path = f"/{env}/{db}/"
-    lookup = ""
-    map_details = ""
-    filter_attr = ""
-    user_table = ""
-    userpool_id = ""
-    role_table = ""
-    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
+    data = request.json
+
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
     try:
-        response = ssm_client.get_parameters_by_path(
-            Path=path, Recursive=True, WithDecryption=True
+        USER_POOL_ID = get_user_pool_id()  # noqa: N806
+        role_info = get_role_code(data['role'])
+        if 'error' in role_info:
+            return jsonify({'message': role_info['error']}), 400
+        role_code = role_info['role_code']
+        cognito_client.admin_create_user(
+            UserPoolId=USER_POOL_ID,
+            Username=data['email'],
+            UserAttributes=[
+                {"Name": "email", "Value": data['email']},
+                {"Name": "email_verified", "Value": "true"},
+                {"Name": "custom:emp_id", "Value": data['emp_id']},
+                {
+                    "Name": "custom:role_code",
+                    "Value": role_code,
+                },
+                {"Name": "custom:name", "Value": data['name']},
+                {"Name": "custom:projects", "Value": str(data['projects'])},
+                {"Name": "custom:upn_str", "Value": data['upn']},
+            ],
+            DesiredDeliveryMediums=['EMAIL'],
         )
-        for param_info in response.get("Parameters", []):
-            name = param_info.get("Name", "")
-            if "LookupTable" in name:
-                lookup = param_info.get("Value", "")
-            elif "FilterAttributesTable" in name:
-                filter_attr = param_info.get("Value", "")
-            elif "MapDetailsTable" in name:
-                map_details = param_info.get("Value", "")
-
-        response = ssm_client.get_parameter(
-            Name=f"/{ENV}/UserManagement/DDB/UserTable"
+        return jsonify({'message': 'User created successfully'}), 201
+    except ClientError as e:
+        error_message = e.response['Error']['Message']
+        if e.response['Error']['Code'] == 'UsernameExistsException':
+            return jsonify({'message': 'User already exists'}), 409
+        return (
+            jsonify({'message': f"Error creating user: {error_message}"}),
+            500,
         )
-
-        user_table = response["Parameter"]["Value"]
-
-        userpool_info = ssm_client.get_parameter(
-            Name=f"/{ENV}/UserManagement/Cognito/COGNITO_USERPOOL_ID"
-        )
-        userpool_id = userpool_info["Parameter"]["Value"]
-
-        role_table_info = ssm_client.get_parameter(
-            Name=f"/{ENV}/UserManagement/DDB/RoleTable"
-        )
-
-        role_table = role_table_info["Parameter"]["Value"]
-
-    except ssm_client.exceptions.ParameterNotFound:
-        logger.exception(
-            "Could not find the User Table parameter in Parameter Store"
-        )
-
-    except ssm_client.exceptions.InternalServerError:
-        logger.exception("Error occurred while fetching table names")
-
-    logger.info(
-        "Parameters store: Lookup: %s, MapDetails: %s, "
-        "FilterAttr: %s, UserTable: %s, userpool_id : %s, role_table: %s"
-        % (
-            lookup,
-            map_details,
-            filter_attr,
-            user_table,
-            userpool_id,
-            role_table,
-        )
-    )
-    return (
-        lookup,
-        map_details,
-        filter_attr,
-        user_table,
-        userpool_id,
-        role_table,
-    )
-
-
-Then I updated function,
-
-
-def get_ddb_table_names(db: str = "DDB", env: str = ENV, extra_params: list[str] = None) -> dict:
-    """
-    Get table names and optionally other parameters from parameter store.
-    Args:
-        db (str): db component name
-        env (str): environment
-        extra_params (list): Optional list of additional parameters to fetch
-    Returns:
-        dict: A dictionary containing table names and optionally other parameters
-    """
-    path = f"/{env}/{db}/"
-    parameters = {
-        "lookup": "",
-        "map_details": "",
-        "filter_attr": "",
-        "user_table": ""
-    }
-
-    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
-
-    try:
-        # Fetch DDB table names
-        response = ssm_client.get_parameters_by_path(
-            Path=path, Recursive=True, WithDecryption=True
-        )
-        for param_info in response.get("Parameters", []):
-            name = param_info.get("Name", "")
-            if "LookupTable" in name:
-                parameters["lookup"] = param_info.get("Value", "")
-            elif "FilterAttributesTable" in name:
-                parameters["filter_attr"] = param_info.get("Value", "")
-            elif "MapDetailsTable" in name:
-                parameters["map_details"] = param_info.get("Value", "")
-
-        response = ssm_client.get_parameter(
-            Name=f"/{env}/UserManagement/DDB/UserTable"
-        )
-        parameters["user_table"] = response["Parameter"]["Value"]
-
-        if extra_params:
-            for param in extra_params:
-                response = ssm_client.get_parameter(Name=param)
-                param_name = param.split("/")[-1]
-                parameters[param_name] = response["Parameter"]["Value"]
-
-    except ssm_client.exceptions.ParameterNotFound:
-        logger.exception(
-            "Could not find the User Table parameter in Parameter Store"
-        )
-    except ssm_client.exceptions.InternalServerError:
-        logger.exception("Error occurred while fetching table names")
-    logging.info(
-        "Parameters store: Lookup: %s, MapDetails: %s, FilterAttr: %s, UserTable: %s"
-        % (parameters["lookup"], parameters["map_details"], parameters["filter_attr"], parameters["user_table"])
-    )
-    return parameters
-
-so i want to call it in this function,
-
-def get_user_pool_id() -> str:
-    """
-    Fetch the USER_POOL_ID from the parameter store if not already set.
-
-    Returns:
-        str: The USER_POOL_ID fetched from the parameter store.
-    """
-    if 'USER_POOL_ID' not in g:
-        _, _, _, _, g.USER_POOL_ID, _ = get_ddb_table_names()
-        print("Fetched USER_POOL_ID:", g.USER_POOL_ID)
-    return g.USER_POOL_ID
