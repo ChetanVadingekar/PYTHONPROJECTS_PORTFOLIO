@@ -1,76 +1,154 @@
-I want to review this below API, please suggest comments. 
+I have old function,
 
-
-@app.route('/users', methods=['GET'])
-def list_user() -> ResponseReturnValue:
+def get_ddb_table_names(db: str = "DDB", env: str = ENV) -> tuple:
     """
-    Summary: List users based on project selected from Cognito user pool.
+    Get table names from parameter store.
+
+    Args:
+        db (str): db component name
+        env (str): environment
 
     Returns:
-        (ResponseReturnValue): JSON response with List of users and message.
+        (tuple): table names
     """
-    project_selected = request.args.get('projectselected')
-    if not project_selected:
-        return jsonify({'message': 'Project not specified', 'users': []}), 400
+    path = f"/{env}/{db}/"
+    lookup = ""
+    map_details = ""
+    filter_attr = ""
+    user_table = ""
+    userpool_id = ""
+    role_table = ""
+    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
     try:
-        page_no = int(request.args.get('page_no', 1))
-        page_size = int(request.args.get('page_size', 10))
-        userid = request.args.get('userid')
-        start_index = (page_no - 1) * page_size
-        end_index = page_no * page_size
+        response = ssm_client.get_parameters_by_path(
+            Path=path, Recursive=True, WithDecryption=True
+        )
+        for param_info in response.get("Parameters", []):
+            name = param_info.get("Name", "")
+            if "LookupTable" in name:
+                lookup = param_info.get("Value", "")
+            elif "FilterAttributesTable" in name:
+                filter_attr = param_info.get("Value", "")
+            elif "MapDetailsTable" in name:
+                map_details = param_info.get("Value", "")
 
-        USER_POOL_ID = get_user_pool_id()  # noqa: N806
-        response = cognito_client.list_users(UserPoolId=USER_POOL_ID)
+        response = ssm_client.get_parameter(
+            Name=f"/{ENV}/UserManagement/DDB/UserTable"
+        )
 
-        users = []
-        for user in response['Users']:
-            attributes = {
-                attr['Name']: attr['Value'] for attr in user['Attributes']
-            }
+        user_table = response["Parameter"]["Value"]
 
-            if 'custom:projects' in attributes:
-                project_list = ast.literal_eval(attributes['custom:projects'])
-                print("projectlist", project_list)
-                if project_selected in project_list:
-                    print("inrole_info")
-                    role_info = get_role_type(attributes['custom:role_code'])
+        userpool_info = ssm_client.get_parameter(
+            Name=f"/{ENV}/UserManagement/Cognito/COGNITO_USERPOOL_ID"
+        )
+        userpool_id = userpool_info["Parameter"]["Value"]
 
-                    if 'error' in role_info:
-                        return jsonify({'message': role_info['error']}), 400
+        role_table_info = ssm_client.get_parameter(
+            Name=f"/{ENV}/UserManagement/DDB/RoleTable"
+        )
 
-                    role_name = role_info["role_name"]
-                    role_type = role_info["role_type"]
-                    attributes['custom:projects'] = attributes[
-                        'custom:projects'
-                    ].replace('"', "'")
-                    users.append(
-                        {
-                            "uid": user['Username'],
-                            "name": attributes['custom:name'],
-                            "emp_id": attributes['custom:emp_id'],
-                            "email": attributes['email'],
-                            "upn": attributes['custom:upn_str'],
-                            "projects": attributes['custom:projects'],
-                            "role_name": role_name,
-                            "role_type": role_type,
-                        }
-                    )
-        filtered_users = [user for user in users if user['uid'] != userid]
+        role_table = role_table_info["Parameter"]["Value"]
 
-        paginated_users = filtered_users[start_index:end_index]
-        if paginated_users:
-            return {
-                'data': paginated_users,
-                'message': '',
-                'total': len(filtered_users),
-            }, 200
-        return {
-            'message': f'No users found for project {project_selected}',
-            'data': [],
-            'total': len(filtered_users),
-        }, 404
-    except ClientError as e:
-        print(f"Error in users: {e.response['Error']['Message']}")
-        return {
-            'message': f"Error in users: {e.response['Error']['Message']}"
-        }, 500
+    except ssm_client.exceptions.ParameterNotFound:
+        logger.exception(
+            "Could not find the User Table parameter in Parameter Store"
+        )
+
+    except ssm_client.exceptions.InternalServerError:
+        logger.exception("Error occurred while fetching table names")
+
+    logger.info(
+        "Parameters store: Lookup: %s, MapDetails: %s, "
+        "FilterAttr: %s, UserTable: %s, userpool_id : %s, role_table: %s"
+        % (
+            lookup,
+            map_details,
+            filter_attr,
+            user_table,
+            userpool_id,
+            role_table,
+        )
+    )
+    return (
+        lookup,
+        map_details,
+        filter_attr,
+        user_table,
+        userpool_id,
+        role_table,
+    )
+
+
+Then I updated function,
+
+
+def get_ddb_table_names(db: str = "DDB", env: str = ENV, extra_params: list[str] = None) -> dict:
+    """
+    Get table names and optionally other parameters from parameter store.
+    Args:
+        db (str): db component name
+        env (str): environment
+        extra_params (list): Optional list of additional parameters to fetch
+    Returns:
+        dict: A dictionary containing table names and optionally other parameters
+    """
+    path = f"/{env}/{db}/"
+    parameters = {
+        "lookup": "",
+        "map_details": "",
+        "filter_attr": "",
+        "user_table": ""
+    }
+
+    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
+
+    try:
+        # Fetch DDB table names
+        response = ssm_client.get_parameters_by_path(
+            Path=path, Recursive=True, WithDecryption=True
+        )
+        for param_info in response.get("Parameters", []):
+            name = param_info.get("Name", "")
+            if "LookupTable" in name:
+                parameters["lookup"] = param_info.get("Value", "")
+            elif "FilterAttributesTable" in name:
+                parameters["filter_attr"] = param_info.get("Value", "")
+            elif "MapDetailsTable" in name:
+                parameters["map_details"] = param_info.get("Value", "")
+
+        response = ssm_client.get_parameter(
+            Name=f"/{env}/UserManagement/DDB/UserTable"
+        )
+        parameters["user_table"] = response["Parameter"]["Value"]
+
+        if extra_params:
+            for param in extra_params:
+                response = ssm_client.get_parameter(Name=param)
+                param_name = param.split("/")[-1]
+                parameters[param_name] = response["Parameter"]["Value"]
+
+    except ssm_client.exceptions.ParameterNotFound:
+        logger.exception(
+            "Could not find the User Table parameter in Parameter Store"
+        )
+    except ssm_client.exceptions.InternalServerError:
+        logger.exception("Error occurred while fetching table names")
+    logging.info(
+        "Parameters store: Lookup: %s, MapDetails: %s, FilterAttr: %s, UserTable: %s"
+        % (parameters["lookup"], parameters["map_details"], parameters["filter_attr"], parameters["user_table"])
+    )
+    return parameters
+
+so i want to call it in this function,
+
+def get_user_pool_id() -> str:
+    """
+    Fetch the USER_POOL_ID from the parameter store if not already set.
+
+    Returns:
+        str: The USER_POOL_ID fetched from the parameter store.
+    """
+    if 'USER_POOL_ID' not in g:
+        _, _, _, _, g.USER_POOL_ID, _ = get_ddb_table_names()
+        print("Fetched USER_POOL_ID:", g.USER_POOL_ID)
+    return g.USER_POOL_ID
