@@ -1,31 +1,79 @@
-is this correct way to create fixture
+I have below function, please make this function genric 
 
+def get_ddb_table_names(db: str = "DDB", env: str = ENV) -> tuple:
+    """
+    Get table names from parameter store.
 
-@pytest.fixture(scope="function")
-def cognito_client():
-    """Creates a boto3 cognito client using Moto."""
-    global USERPOOLID
+    Args:
+        db (str): db component name
+        env (str): environment
 
-    with mock_aws():
-       
-        client = boto3.client("cognito-idp", region_name="ap-northeast-1")
-        
-        response = client.create_user_pool(PoolName="ap-northeast-1_v8Q6hA4sN")
-        print("response in client==>",response['UserPool']['Id'])
-        print("response client==>",client)
-        user_pool_id = response['UserPool']['Id']
-        client.admin_create_user(
-            UserPoolId=user_pool_id,
-            Username='user1',
-            UserAttributes=[
-                {'Name': 'custom:projects', 'Value': '["Project A"]'},
-                {'Name': 'custom:name', 'Value': 'John Doe'},
-                {'Name': 'custom:emp_id', 'Value': 'E001'},
-                {'Name': 'email', 'Value': 'john.doe@example.com'},
-                {'Name': 'custom:upn_str', 'Value': 'john.doe'},
-                {'Name': 'custom:role_code', 'Value': 'R1001'}
-            ]
+    Returns:
+        (tuple): table names
+    """
+    path = f"/{env}/{db}/"
+    lookup = ""
+    map_details = ""
+    filter_attr = ""
+    user_table = ""
+    userpool_id = ""
+    role_table = ""
+    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
+    try:
+        response = ssm_client.get_parameters_by_path(
+            Path=path, Recursive=True, WithDecryption=True
         )
-        USERPOOLID = user_pool_id
-        print("cognitoclient==>",USERPOOLID)
-        return client,user_pool_id
+        for param_info in response.get("Parameters", []):
+            name = param_info.get("Name", "")
+            if "LookupTable" in name:
+                lookup = param_info.get("Value", "")
+            elif "FilterAttributesTable" in name:
+                filter_attr = param_info.get("Value", "")
+            elif "MapDetailsTable" in name:
+                map_details = param_info.get("Value", "")
+
+        response = ssm_client.get_parameter(
+            Name=f"/{ENV}/UserManagement/DDB/UserTable"
+        )
+
+        user_table = response["Parameter"]["Value"]
+
+        userpool_info = ssm_client.get_parameter(
+            Name=f"/{ENV}/UserManagement/Cognito/COGNITO_USERPOOL_ID"
+        )
+        userpool_id = userpool_info["Parameter"]["Value"]
+
+        role_table_info = ssm_client.get_parameter(
+            Name=f"/{ENV}/UserManagement/DDB/RoleTable"
+        )
+
+        role_table = role_table_info["Parameter"]["Value"]
+
+    except ssm_client.exceptions.ParameterNotFound:
+        logger.exception(
+            "Could not find the User Table parameter in Parameter Store"
+        )
+
+    except ssm_client.exceptions.InternalServerError:
+        logger.exception("Error occurred while fetching table names")
+
+    logger.info(
+        "Parameters store: Lookup: %s, MapDetails: %s, "
+        "FilterAttr: %s, UserTable: %s, userpool_id : %s, role_table: %s"
+        % (
+            lookup,
+            map_details,
+            filter_attr,
+            user_table,
+            userpool_id,
+            role_table,
+        )
+    )
+    return (
+        lookup,
+        map_details,
+        filter_attr,
+        user_table,
+        userpool_id,
+        role_table,
+    )
