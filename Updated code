@@ -1,46 +1,68 @@
 I have below api, I need to do code review please provide me the improvements comments 
 
-@app.route('/users', methods=['POST'])
-def add_user() -> ResponseReturnValue:
+@app.route('/users/<uid>', methods=['PATCH'])
+def update_user(uid: str) -> ResponseReturnValue:
     """
-    Summary: Add user to the Cognito user pool.
+    Summary: Update user in the Cognito user pool.
+
+    Args:
+        uid (str): The user ID.
 
     Returns:
         (ResponseReturnValue): JSON response with message.
     """
-    data = request.json
-
-    if not data:
-        return jsonify({'message': 'No data provided'}), 400
     try:
+        data = request.json
+        if not data:
+            return (
+                jsonify(
+                    {'message': 'No data provided or invalid content type'}
+                ),
+                400,
+            )
+
+        user_attributes = []
+        custom_attributes = {
+            "emp_id": "custom:emp_id",
+            "name": "custom:name",
+            "projects": "custom:projects",
+            "role": "custom:role_code",
+            "upn_str": "custom:upn_str",
+        }
+        for key, value in data.items():
+            if key in custom_attributes:
+                if key == "projects" and isinstance(value, list):
+                    value = json.dumps(value)
+                if key == "role":
+                    role_info = get_role_code(value)
+
+                    if 'error' in role_info:
+                        return jsonify({'message': role_info['error']}), 400
+                    role_code = role_info['role_code']
+
+                    user_attributes.append(
+                        {'Name': custom_attributes[key], 'Value': role_code}
+                    )
+
+                else:
+                    user_attributes.append(
+                        {'Name': custom_attributes[key], 'Value': value}
+                    )
+            else:
+                user_attributes.append({'Name': key, 'Value': value})
         USER_POOL_ID = get_user_pool_id()  # noqa: N806
-        role_info = get_role_code(data['role'])
-        if 'error' in role_info:
-            return jsonify({'message': role_info['error']}), 400
-        role_code = role_info['role_code']
-        cognito_client.admin_create_user(
+        cognito_client.admin_update_user_attributes(
             UserPoolId=USER_POOL_ID,
-            Username=data['email'],
-            UserAttributes=[
-                {"Name": "email", "Value": data['email']},
-                {"Name": "email_verified", "Value": "true"},
-                {"Name": "custom:emp_id", "Value": data['emp_id']},
-                {
-                    "Name": "custom:role_code",
-                    "Value": role_code,
-                },
-                {"Name": "custom:name", "Value": data['name']},
-                {"Name": "custom:projects", "Value": str(data['projects'])},
-                {"Name": "custom:upn_str", "Value": data['upn']},
-            ],
-            DesiredDeliveryMediums=['EMAIL'],
+            Username=uid,
+            UserAttributes=user_attributes,
         )
-        return jsonify({'message': 'User created successfully'}), 201
+        return jsonify({'message': 'User updated successfully'}), 200
+
     except ClientError as e:
         error_message = e.response['Error']['Message']
-        if e.response['Error']['Code'] == 'UsernameExistsException':
-            return jsonify({'message': 'User already exists'}), 409
         return (
-            jsonify({'message': f"Error creating user: {error_message}"}),
+            jsonify({'message': f"Error updating user: {error_message}"}),
             500,
         )
+    except Exception as e:
+        return jsonify({'message': f"Unexpected error: {str(e)}"}), 500
