@@ -1,53 +1,42 @@
-def get_ddb_table_names(db: str = "DDB", env: str = ENV, extra_params: list[str] = None) -> dict:
+Please review the below code,
+
+def get_role_type(role_code: str) -> dict:
     """
-    Get table names and optionally other parameters from parameter store.
+    Summary: Fetches the role type from DynamoDB for the provided role code.
+
     Args:
-        db (str): db component name
-        env (str): environment
-        extra_params (list): Optional list of additional parameters to fetch
+        role_code (str): The role code to map to its role type.
+
     Returns:
-        dict: A dictionary containing table names and optionally other parameters
+        dict: Contains the role type ('role_type').
     """
-    path = f"/{env}/{db}/"
-    parameters = {
-        "lookup": "",
-        "map_details": "",
-        "filter_attr": "",
-        "user_table": ""
+    mapping = {
+        'R1001': 'admin',
+        'R1002': 'project_admin',
+        'R3001': 'data_engineer',
+        'R4001': 'external',
+        'R2001': 'guest',
+        'R5001': 'ticket_manager',
     }
-    
-    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
-    
     try:
-        # Fetch DDB table names
-        response = ssm_client.get_parameters_by_path(
-            Path=path, Recursive=True, WithDecryption=True
+        role_type = mapping.get(role_code)
+        print("role_code", role_code)
+        print("role_type", role_type)
+        if not role_type:
+            return {'error': 'Role type mapping not found'}
+
+        response = role_info_table.get_item(
+            Key={'role_code': role_code, 'type': role_type}
         )
-        for param_info in response.get("Parameters", []):
-            name = param_info.get("Name", "")
-            if "LookupTable" in name:
-                parameters["lookup"] = param_info.get("Value", "")
-            elif "FilterAttributesTable" in name:
-                parameters["filter_attr"] = param_info.get("Value", "")
-            elif "MapDetailsTable" in name:
-                parameters["map_details"] = param_info.get("Value", "")
-        # Fetch User Table
-        response = ssm_client.get_parameter(
-            Name=f"/{env}/UserManagement/DDB/UserTable"
-        )
-        parameters["user_table"] = response["Parameter"]["Value"]
-        # Fetch additional parameters if specified
-        if extra_params:
-            for param in extra_params:
-                response = ssm_client.get_parameter(Name=param)
-                param_name = param.split("/")[-1]  # Get the last part of the parameter path as key
-                parameters[param_name] = response["Parameter"]["Value"]
-    except ssm_client.exceptions.ParameterNotFound:
-        logging.error("Could not find one or more parameters in Parameter Store")
-    except ssm_client.exceptions.InternalServerError:
-        logging.error("Error occurred while fetching parameters")
-    logging.info(
-        "Parameters store: Lookup: %s, MapDetails: %s, FilterAttr: %s, UserTable: %s"
-        % (parameters["lookup"], parameters["map_details"], parameters["filter_attr"], parameters["user_table"])
-    )
-    return parameters
+        if 'Item' in response:
+            print({"role_type": response['Item'].get('name', 'Unknown')})
+            return {
+                'role_name': response['Item'].get('name', 'Unknown'),
+                'role_type': response['Item'].get('type', 'Unknown'),
+            }
+
+        return {'error': 'Role code not found'}
+    except ClientError as e:
+        return {
+            'error': f"Error in role type: {e.response['Error']['Message']}"
+        }
