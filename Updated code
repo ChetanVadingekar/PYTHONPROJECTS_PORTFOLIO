@@ -1,113 +1,31 @@
-import boto3
-import requests
-import logging
-
-REGION_NAME = "your-region"
-ENV = "your-env"
-
-def get_ddb_table_names(db: str = "DDB", env: str = ENV, extra_params: list[str] = None) -> dict:
-    """
-    Get table names and optionally other parameters from parameter store.
-
-    Args:
-        db (str): db component name
-        env (str): environment
-        extra_params (list): Optional list of additional parameters to fetch
-
-    Returns:
-        dict: A dictionary containing table names and optionally other parameters
-    """
-    path = f"/{env}/{db}/"
-    parameters = {
-        "lookup": "",
-        "map_details": "",
-        "filter_attr": "",
-        "user_table": ""
-    }
-    
-    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
-    
-    try:
-        # Fetch DDB table names
-        response = ssm_client.get_parameters_by_path(
-            Path=path, Recursive=True, WithDecryption=True
-        )
-        for param_info in response.get("Parameters", []):
-            name = param_info.get("Name", "")
-            if "LookupTable" in name:
-                parameters["lookup"] = param_info.get("Value", "")
-            elif "FilterAttributesTable" in name:
-                parameters["filter_attr"] = param_info.get("Value", "")
-            elif "MapDetailsTable" in name:
-                parameters["map_details"] = param_info.get("Value", "")
-
-        # Fetch User Table
-        response = ssm_client.get_parameter(
-            Name=f"/{env}/UserManagement/DDB/UserTable"
-        )
-        parameters["user_table"] = response["Parameter"]["Value"]
-
-        # Fetch additional parameters if specified
-        if extra_params:
-            for param in extra_params:
-                response = ssm_client.get_parameter(Name=param)
-                param_name = param.split("/")[-1]  # Get the last part of the parameter path as key
-                parameters[param_name] = response["Parameter"]["Value"]
-
-    except ssm_client.exceptions.ParameterNotFound:
-        logging.error("Could not find one or more parameters in Parameter Store")
-
-    except ssm_client.exceptions.InternalServerError:
-        logging.error("Error occurred while fetching parameters")
-
-    logging.info(
-        "Parameters store: Lookup: %s, MapDetails: %s, FilterAttr: %s, UserTable: %s"
-        % (parameters["lookup"], parameters["map_details"], parameters["filter_attr"], parameters["user_table"])
-    )
-    return parameters
+is this correct way to create fixture
 
 
-def call_fetch_description_events(
-    description: str, page_no: int, page_size: int
-) -> tuple[list[str], int, str]:
-    """
-    Call fetch_description_events to get list of event ID based on description.
+@pytest.fixture(scope="function")
+def cognito_client():
+    """Creates a boto3 cognito client using Moto."""
+    global USERPOOLID
 
-    Args:
-        description (str): The description to filter events by.
-        page_no (int): page number for pagination
-        page_size (int): page size for pagination
-
-    Returns:
-        tuple[list[str], int, str]: A tuple containing a list of event IDs,
-                                    HTTP status code, and error message if any.
-    """
-    # Reuse get_ddb_table_names to fetch the Description API URL
-    extra_params = [f"/{ENV}/DescriptionAPI/Endpoint/URL"]
-    parameters = get_ddb_table_names(extra_params=extra_params)
-
-    description_api_url = parameters.get("URL")
-    if not description_api_url:
-        return [], 404, "Description API endpoint not found in Parameter Store"
-
-    description_api_url = (
-        description_api_url + f"?page-number={page_no}&page-size={page_size}"
-    )
-
-    try:
-        description_response = requests.post(
-            description_api_url, json={"query": description}, timeout=30
-        )
-        if description_response.status_code == 200:
-            event_ids = description_response.json().get("id", [])
-            return event_ids, 200, ""
-        if description_response.status_code == 404:
-            return [], 404, "Endpoint URL for fetch-description-events not found"
-
-        return [], description_response.status_code, "An error occurred while processing the request."
-
-    except Exception as e:
-        logging.info(f"Exception in call_fetch_description_events- {e}")
-        return [], 200, "No events found"
-
+    with mock_aws():
+       
+        client = boto3.client("cognito-idp", region_name="ap-northeast-1")
         
+        response = client.create_user_pool(PoolName="ap-northeast-1_v8Q6hA4sN")
+        print("response in client==>",response['UserPool']['Id'])
+        print("response client==>",client)
+        user_pool_id = response['UserPool']['Id']
+        client.admin_create_user(
+            UserPoolId=user_pool_id,
+            Username='user1',
+            UserAttributes=[
+                {'Name': 'custom:projects', 'Value': '["Project A"]'},
+                {'Name': 'custom:name', 'Value': 'John Doe'},
+                {'Name': 'custom:emp_id', 'Value': 'E001'},
+                {'Name': 'email', 'Value': 'john.doe@example.com'},
+                {'Name': 'custom:upn_str', 'Value': 'john.doe'},
+                {'Name': 'custom:role_code', 'Value': 'R1001'}
+            ]
+        )
+        USERPOOLID = user_pool_id
+        print("cognitoclient==>",USERPOOLID)
+        return client,user_pool_id
