@@ -1,1 +1,24 @@
+Requirement:
 
+	1.	Display vehicle_id as a dropdown option in the Advanced Search options.
+	2.	List of vehicle_ids will be shown in the dropdown.
+
+Approach to Achieve the Requirement:
+
+1. Update Filter Attributes in DynamoDB Table
+
+	•	Modify the filter attributes table in DynamoDB to mark vehicle_id as a dropdown option. This will allow vehicle_id to appear as a selectable dropdown in the Advanced Search interface.
+
+2. Update APIs
+
+	•	Target APIs: fetch-videos-for-listing and fetch-events-for-listing
+	•	Required Updates:
+	•	Fetch Drive and Event Session Table Names: Retrieve table names dynamically according to the selected project.
+	•	Query OpenSearch for Unique vehicle_ids:
+	•	Using the retrieved table names, perform a search on the relevant OpenSearch index.
+	•	Create a query to identify the most unique vehicle_ids, ensuring duplicates are avoided.
+	•	Return this list of unique vehicle_ids in the API response, allowing the frontend to populate the dropdown with this data.
+
+Outcome:
+
+The frontend will receive a list of unique vehicle_ids to display in the Advanced Search dropdown, fulfilling the requirement for vehicle_id selection in a user-friendly way.
