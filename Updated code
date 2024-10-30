@@ -1,24 +1,171 @@
-Requirement:
+Actually I have opensearch mapping for drive session index see below,
 
-	1.	Display vehicle_id as a dropdown option in the Advanced Search options.
-	2.	List of vehicle_ids will be shown in the dropdown.
+class DriveSession(Document):
+    """Document to store Drive Session data."""
 
-Approach to Achieve the Requirement:
+    created_at = Date()
+    display_id = Keyword()
+    folder_name = Keyword()
+    gps_information = Object(dynamic=True)  # type: ignore
+    rec_year_month = Keyword()
+    rec_year_month_date = Keyword()
+    s3_uri = Object(dynamic=True)  # type: ignore
+    start_time = Date()
+    stop_time = Date()
+    tags = Keyword(multi=True, normalizer="lowercase")  # type: ignore
+    updated_at = Date()
+    vehicle_id = Keyword()
+    trajectory = Object(dynamic=True)  # type: ignore
+    current_status = Keyword()
+    pipeline_status = Object(dynamic=True)  # type: ignore
 
-1. Update Filter Attributes in DynamoDB Table
-
-	•	Modify the filter attributes table in DynamoDB to mark vehicle_id as a dropdown option. This will allow vehicle_id to appear as a selectable dropdown in the Advanced Search interface.
-
-2. Update APIs
-
-	•	Target APIs: fetch-videos-for-listing and fetch-events-for-listing
-	•	Required Updates:
-	•	Fetch Drive and Event Session Table Names: Retrieve table names dynamically according to the selected project.
-	•	Query OpenSearch for Unique vehicle_ids:
-	•	Using the retrieved table names, perform a search on the relevant OpenSearch index.
-	•	Create a query to identify the most unique vehicle_ids, ensuring duplicates are avoided.
-	•	Return this list of unique vehicle_ids in the API response, allowing the frontend to populate the dropdown with this data.
-
-Outcome:
-
-The frontend will receive a list of unique vehicle_ids to display in the Advanced Search dropdown, fulfilling the requirement for vehicle_id selection in a user-friendly way.
+and you can see below the drive session data on opensearch index,
+ 
+  {
+	"_index": "adcp-us-project-01-drive-data",
+	"_id": "43-20220301_215857",
+	"_score": 1,
+	"_source": {
+	  "country": "US",
+	  "updated_at": "2024-08-08T09:30:22.511692+00:00",
+	  "display_id": "941ef724-463a-4761-93c1-bc276761cae0",
+	  "rec_year_month": "202203",
+	  "created_at": "2024-08-08T09:30:22.511692+00:00",
+	  "current_status": "InProgress",
+	  "pipeline_status": {
+		"merge_avi": {
+		  "error_log_name": [],
+		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
+		  "status": "Pending"
+		},
+		"merge_parquet": {
+		  "error_log_name": [],
+		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
+		  "status": "Pending"
+		},
+		"upload": {
+		  "error_log_name": [],
+		  "updated_at": "2024-08-08T09:30:22.868582+00:00",
+		  "status": "InProgress"
+		},
+		"rosbag": {
+		  "error_log_name": [],
+		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
+		  "status": "Pending"
+		},
+		"conversion": {
+		  "error_log_name": "",
+		  "updated_at": "2024-08-08T09:30:22.868582+00:00",
+		  "status": "Pending"
+		},
+		"statistics": {
+		  "error_log_name": [],
+		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
+		  "status": "Pending"
+		}
+	  },
+	  "folder_name": "20220301_215857",
+	  "rec_year_month_date": "20220301",
+	  "vehicle_id": "43"
+	}
+  },
+  {
+	"_index": "adcp-us-project-01-drive-data",
+	"_id": "11-20240601_112233",
+	"_score": 1,
+	"_source": {
+	  "country": "US",
+	  "updated_at": "2024-07-12T06:11:00.369221+00:00",
+	  "display_id": "6e8abdf3-c38f-4cbf-a3b3-e793ede65341",
+	  "rec_year_month": "202406",
+	  "created_at": "2024-07-12T06:09:35.829241+00:00",
+	  "current_status": "InProgress",
+	  "pipeline_status": {
+		"merge_avi": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
+		  "status": "Pending"
+		},
+		"merge_parquet": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
+		  "status": "Pending"
+		},
+		"upload": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:11:00.369221+00:00",
+		  "status": "Completed"
+		},
+		"rosbag": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
+		  "status": "Pending"
+		},
+		"conversion": {
+		  "error_log_name": "",
+		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
+		  "status": "Pending"
+		},
+		"statistics": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
+		  "status": "Pending"
+		}
+	  },
+	  "folder_name": "20240601_112233",
+	  "rec_year_month_date": "20240601",
+	  "vehicle_id": "41"
+	}
+  },
+  {
+	"_index": "adcp-us-project-01-drive-data",
+	"_id": "11-20240602_112233",
+	"_score": 1,
+	"_source": {
+	  "country": "US",
+	  "updated_at": "2024-07-12T06:12:26.304539+00:00",
+	  "display_id": "cd93ddb4-cae3-4e41-9cd6-09f91b575f06",
+	  "rec_year_month": "202406",
+	  "created_at": "2024-07-12T06:12:23.154350+00:00",
+	  "current_status": "InProgress",
+	  "pipeline_status": {
+		"merge_avi": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
+		  "status": "Pending"
+		},
+		"merge_parquet": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
+		  "status": "Pending"
+		},
+		"upload": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:12:26.304539+00:00",
+		  "status": "Completed"
+		},
+		"rosbag": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
+		  "status": "Pending"
+		},
+		"conversion": {
+		  "error_log_name": "",
+		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
+		  "status": "Pending"
+		},
+		"statistics": {
+		  "error_log_name": [],
+		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
+		  "status": "Pending"
+		}
+	  },
+	  "folder_name": "20240602_112233",
+	  "rec_year_month_date": "20240602",
+	  "vehicle_id": "11"
+	}
+  }
+  
+  
+Now we need to create query on opensearch to get the most unique vehicle_id.
+Could you please create an query.  
