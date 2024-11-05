@@ -1,171 +1,72 @@
-Actually I have opensearch mapping for drive session index see below,
+Here’s an updated User Story 2 to include the integration of sub-utility functions:
 
-class DriveSession(Document):
-    """Document to store Drive Session data."""
+User Story 2: Extend fetch-filter-attributes-v2 API to Retrieve and Append Unique Vehicle IDs
 
-    created_at = Date()
-    display_id = Keyword()
-    folder_name = Keyword()
-    gps_information = Object(dynamic=True)  # type: ignore
-    rec_year_month = Keyword()
-    rec_year_month_date = Keyword()
-    s3_uri = Object(dynamic=True)  # type: ignore
-    start_time = Date()
-    stop_time = Date()
-    tags = Keyword(multi=True, normalizer="lowercase")  # type: ignore
-    updated_at = Date()
-    vehicle_id = Keyword()
-    trajectory = Object(dynamic=True)  # type: ignore
-    current_status = Keyword()
-    pipeline_status = Object(dynamic=True)  # type: ignore
+Title: Enhance fetch-filter-attributes-v2 API to Retrieve and Append Unique Vehicle IDs
+Description: As a developer, I want to extend the fetch-filter-attributes-v2 API by integrating sub-utility functions to retrieve unique vehicle_ids from OpenSearch based on the drive session table and append these IDs to the existing API response.
 
-and you can see below the drive session data on opensearch index,
- 
-  {
-	"_index": "adcp-us-project-01-drive-data",
-	"_id": "43-20220301_215857",
-	"_score": 1,
-	"_source": {
-	  "country": "US",
-	  "updated_at": "2024-08-08T09:30:22.511692+00:00",
-	  "display_id": "941ef724-463a-4761-93c1-bc276761cae0",
-	  "rec_year_month": "202203",
-	  "created_at": "2024-08-08T09:30:22.511692+00:00",
-	  "current_status": "InProgress",
-	  "pipeline_status": {
-		"merge_avi": {
-		  "error_log_name": [],
-		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
-		  "status": "Pending"
-		},
-		"merge_parquet": {
-		  "error_log_name": [],
-		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
-		  "status": "Pending"
-		},
-		"upload": {
-		  "error_log_name": [],
-		  "updated_at": "2024-08-08T09:30:22.868582+00:00",
-		  "status": "InProgress"
-		},
-		"rosbag": {
-		  "error_log_name": [],
-		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
-		  "status": "Pending"
-		},
-		"conversion": {
-		  "error_log_name": "",
-		  "updated_at": "2024-08-08T09:30:22.868582+00:00",
-		  "status": "Pending"
-		},
-		"statistics": {
-		  "error_log_name": [],
-		  "updated_at": "2024-08-08T09:30:22.511692+00:00",
-		  "status": "Pending"
-		}
-	  },
-	  "folder_name": "20220301_215857",
-	  "rec_year_month_date": "20220301",
-	  "vehicle_id": "43"
-	}
-  },
-  {
-	"_index": "adcp-us-project-01-drive-data",
-	"_id": "11-20240601_112233",
-	"_score": 1,
-	"_source": {
-	  "country": "US",
-	  "updated_at": "2024-07-12T06:11:00.369221+00:00",
-	  "display_id": "6e8abdf3-c38f-4cbf-a3b3-e793ede65341",
-	  "rec_year_month": "202406",
-	  "created_at": "2024-07-12T06:09:35.829241+00:00",
-	  "current_status": "InProgress",
-	  "pipeline_status": {
-		"merge_avi": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
-		  "status": "Pending"
-		},
-		"merge_parquet": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
-		  "status": "Pending"
-		},
-		"upload": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:11:00.369221+00:00",
-		  "status": "Completed"
-		},
-		"rosbag": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
-		  "status": "Pending"
-		},
-		"conversion": {
-		  "error_log_name": "",
-		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
-		  "status": "Pending"
-		},
-		"statistics": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:09:35.829241+00:00",
-		  "status": "Pending"
-		}
-	  },
-	  "folder_name": "20240601_112233",
-	  "rec_year_month_date": "20240601",
-	  "vehicle_id": "41"
-	}
-  },
-  {
-	"_index": "adcp-us-project-01-drive-data",
-	"_id": "11-20240602_112233",
-	"_score": 1,
-	"_source": {
-	  "country": "US",
-	  "updated_at": "2024-07-12T06:12:26.304539+00:00",
-	  "display_id": "cd93ddb4-cae3-4e41-9cd6-09f91b575f06",
-	  "rec_year_month": "202406",
-	  "created_at": "2024-07-12T06:12:23.154350+00:00",
-	  "current_status": "InProgress",
-	  "pipeline_status": {
-		"merge_avi": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
-		  "status": "Pending"
-		},
-		"merge_parquet": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
-		  "status": "Pending"
-		},
-		"upload": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:12:26.304539+00:00",
-		  "status": "Completed"
-		},
-		"rosbag": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
-		  "status": "Pending"
-		},
-		"conversion": {
-		  "error_log_name": "",
-		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
-		  "status": "Pending"
-		},
-		"statistics": {
-		  "error_log_name": [],
-		  "updated_at": "2024-07-12T06:12:23.154350+00:00",
-		  "status": "Pending"
-		}
-	  },
-	  "folder_name": "20240602_112233",
-	  "rec_year_month_date": "20240602",
-	  "vehicle_id": "11"
-	}
-  }
-  
-  
-Now we need to create query on opensearch to get the most unique vehicle_id.
-Could you please create an query.  
+Acceptance Criteria
+
+	1.	Project-Based Table Name Lookup:
+	•	The fetch-filter-attributes-v2 API uses a utility function to retrieve the drive session table name from the lookup table based on the selected project.
+	2.	Utility Function to Fetch Unique Vehicle IDs:
+	•	A sub-utility function is integrated into the API to query OpenSearch and retrieve unique vehicle_ids.
+	•	The function ensures that only distinct vehicle_ids are fetched.
+	3.	Append to Existing Response:
+	•	The API appends the list of unique vehicle_ids to the existing response structure.
+	4.	Error Handling:
+	•	If no vehicle_ids are found, the API appends an empty list for vehicle_ids in the response.
+	•	If there is an error in retrieving the drive session table name or in the OpenSearch query, a descriptive error message is included in the response.
+
+Certainly. Here’s how we can break down each subtask into separate user stories with acceptance criteria.
+
+User Story 1: Update Filter Attributes Table
+
+Title: Configure vehicle_id as a dropdown in Filter Attributes Table
+Description: As a developer, I want to update the filter attributes DynamoDB table to set vehicle_id as a dropdown option, enabling it to be displayed as a selectable dropdown in Advanced Search.
+
+Acceptance Criteria
+
+	1.	Database Update:
+	•	vehicle_id is added as a filter attribute in the DynamoDB table.
+	•	The vehicle_id attribute is marked as a dropdown type.
+	2.	Validation:
+	•	Verify that the DynamoDB table reflects the updated schema with vehicle_id marked as a dropdown.
+	3.	Integration Readiness:
+	•	The attribute is correctly set for retrieval by APIs or the frontend for displaying vehicle_id as a dropdown option.
+
+User Story 2: Create New API for Vehicle ID Retrieval
+
+Title: Develop API to Retrieve Unique Vehicle IDs
+Description: As a developer, I want to create a new API that retrieves unique vehicle_ids from the OpenSearch index based on the project-specific drive session table.
+
+Acceptance Criteria
+
+	1.	Endpoint Creation:
+	•	A new API endpoint /get-vehicle-id-list is created to fetch vehicle_ids.
+	2.	Project-Based Table Name Lookup:
+	•	The API retrieves the drive session table name based on the selected project from the lookup table.
+	3.	Unique Vehicle IDs Retrieval:
+	•	The API fetches a list of unique vehicle_ids from the OpenSearch index.
+	•	The API response only includes distinct vehicle_ids, with no duplicates.
+	4.	Error Handling:
+	•	If no vehicle_ids are found, the API returns an empty list with a relevant message.
+	•	If the project ID or table lookup fails, a descriptive error is returned.
+
+User Story 3: Construct OpenSearch Query for Unique Vehicle IDs
+
+Title: Construct Query for Fetching Unique Vehicle IDs from OpenSearch
+Description: As a developer, I want to create a query to retrieve unique vehicle_ids from the OpenSearch index based on the drive session table, so that duplicate vehicle IDs are excluded from the results.
+
+Acceptance Criteria
+
+	1.	Query Design:
+	•	The OpenSearch query is configured to return only unique vehicle_ids.
+	2.	Query Performance:
+	•	The query executes efficiently without significant delay, even with large datasets.
+	3.	Integration with API:
+	•	The query is integrated into the /get-vehicle-id-list API to fetch and return distinct vehicle_ids.
+	4.	Error Handling:
+	•	If an error occurs during the OpenSearch query execution, an appropriate error message is generated and logged for debugging.
+
+These separate user stories allow for focused development and testing of each part, making it easier to track and manage progress.
