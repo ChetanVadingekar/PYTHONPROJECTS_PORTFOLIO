@@ -1,112 +1,104 @@
-I have reference class
+reference test case class see below,
 
-class DriveSessionUtility:
+class TestOpenSearchDriveSessionUtility(TestCase):
     """
-    A utility class for querying to retrieve the latest 'rec_year_month_date'.
-
-    Attributes:
-        index_name (str): The name of the OpenSearch drive session index.
+    Test cases for the OpenSearchDriveSessionUtility class.
     """
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.client = OS_DB_CLIENT
+        cluster_info = cls.client.info()
+        assert cluster_info["cluster_name"] == "docker-cluster"
+        
+    def tearDown(self) -> None:
+        if self.client.indices.exists(index=DRIVE_SESSION_INDEX_NAME):
+            self.client.indices.delete(index=DRIVE_SESSION_INDEX_NAME)
 
-    def __init__(
-        self: OpenSearchDriveSessionUtilityVar, index_name: str
-    ) -> None:
+    @mock_aws
+    @patch('utility.get_db_client')
+    def test_create_query(self, mock_get_db_client):
         """
-        Initialize the OpenSearchDriveSessionUtility.
-
-        Args:
-            index_name (str): The name of the OpenSearch drive session index.
+        Test create_query method.
         """
-        self.index_name = index_name
+        mock_get_db_client.return_value = self.client
+        from opensearch_utility import DriveSessionUtility
 
-    def create_query(self: OpenSearchDriveSessionUtilityVar) -> dict[str, Any]:
+        drive_utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)
+
+        query = drive_utility.create_query()
+        print(f"query: {query}")
+        self.assertEqual(query, {'size': 1, '_source': ['rec_year_month_date'], 'sort': [{'rec_year_month_date': {'order': 'desc'}}], 'query': {'match_all': {}}}
+                        )
+    
+    @mock_aws
+    @patch('utility.get_db_client')
+    def test_get_rec_year_month_date_with_existing_index(self, mock_get_db_client):
         """
-        Create an OpenSearch query to fetch latest `rec_year_month_date`.
-
-        Returns:
-            dict: The OpenSearch query.
+        Test that the get_rec_year_month_date method retrieves the most recent
+        'rec_year_month_date' from an existing index when the index exists and 
+        contains valid data.
         """
-        query: dict[str, Any] = {
-            "size": 1,
-            "_source": ["rec_year_month_date"],
-            "sort": [{"rec_year_month_date": {"order": "desc"}}],
-            "query": {"match_all": {}},
-        }
-        return query
+        from opensearch_utility import DriveSessionUtility
+        mock_get_db_client.return_value = self.client
+        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
+             patch("opensearch_utility.client.search") as mock_search:
 
-    def get_rec_year_month_date(self: OpenSearchDriveSessionUtilityVar) -> str:
+            mock_exists.return_value = True
+
+            mock_search.return_value = {
+                'hits': {
+                    'hits': [
+                        {
+                            '_source': {
+                                'rec_year_month_date': '20240115'
+                            }
+                        }
+                    ]
+                }
+            }
+
+            utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)            
+            rec_date = utility.get_rec_year_month_date()
+            self.assertEqual(rec_date, "20240115")
+
+    @mock_aws
+    @patch('utility.get_db_client')
+    def test_get_rec_year_month_date_with_no_date(self, mock_get_db_client):
         """
-        Execute an OpenSearch query on the index to get "rec_year_month_date".
-
-        Returns:
-            str: The most recent `rec_year_month_date` if found.
-            or empty response if the index doesn't exist.
+        Test that the get_rec_year_month_date method returns 'NA' when the index exists,
+        but no 'rec_year_month_date' is found in the search response.
         """
-        if client.indices.exists(index=self.index_name):
-            query = self.create_query()
-            response = client.search(index=self.index_name, body=query)
+        from opensearch_utility import DriveSessionUtility
+        mock_get_db_client.return_value = self.client
+        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
+             patch("opensearch_utility.client.search") as mock_search:
 
-            if response['hits']['hits']:
-                rec_year_month_date = response['hits']['hits'][0][
-                    '_source'
-                ].get('rec_year_month_date')
-                return (
-                    rec_year_month_date
-                    if rec_year_month_date
-                    else "Unavailable"
-                )
-            return "Unavailable"
-        return "Unavailable"
+            mock_exists.return_value = True
+
+            mock_search.return_value = {
+                'hits': {
+                    'hits': []
+                }
+            }
+            utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)
+            rec_date = utility.get_rec_year_month_date()
+            self.assertEqual(rec_date, "Unavailable")
+
+    @mock_aws
+    @patch('utility.get_db_client')
+    def test_get_rec_year_month_date_with_non_existing_index(self, mock_get_db_client):
+        ""
+        Test that the get_rec_year_month_date method returns 'NA' when the index does
+        not exist (i.e., the index is not found in OpenSearch).
+        """
+        from opensearch_utility import DriveSessionUtility
+        mock_get_db_client.return_value = self.client
+
+        with patch("opensearch_utility.client.indices.exists") as mock_exists:
+            mock_exists.return_value = False
+            utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)
+            rec_date = utility.get_rec_year_month_date()
+            self.assertEqual(rec_date, "Unavailable")
 
 
-like that we have to create a class for to get distinct vehicle ids.
-as you have given the query to get the distinct vehicle ids.
-from that query i am getting below query response,
-
-{
-  "took": 1,
-  "timed_out": false,
-  "_shards": {
-    "total": 1,
-    "successful": 1,
-    "skipped": 0,
-    "failed": 0
-  },
-  "hits": {
-    "total": {
-      "value": 34,
-      "relation": "eq"
-    },
-    "max_score": null,
-    "hits": []
-  },
-  "aggregations": {
-    "unique_vehicle_ids": {
-      "after_key": {
-        "vehicle_id": "43"
-      },
-      "buckets": [
-        {
-          "key": {
-            "vehicle_id": "11"
-          },
-          "doc_count": 2
-        },
-        {
-          "key": {
-            "vehicle_id": "41"
-          },
-          "doc_count": 19
-        },
-        {
-          "key": {
-            "vehicle_id": "43"
-          },
-          "doc_count": 13
-        }
-      ]
-    }
-  }
-}
-
-please create a class 
+As you have given the drivesessionvehicleutility class please write test class for that please refer above class.
