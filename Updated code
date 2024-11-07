@@ -1,72 +1,112 @@
-Here’s an updated User Story 2 to include the integration of sub-utility functions:
+I have reference class
 
-User Story 2: Extend fetch-filter-attributes-v2 API to Retrieve and Append Unique Vehicle IDs
+class DriveSessionUtility:
+    """
+    A utility class for querying to retrieve the latest 'rec_year_month_date'.
 
-Title: Enhance fetch-filter-attributes-v2 API to Retrieve and Append Unique Vehicle IDs
-Description: As a developer, I want to extend the fetch-filter-attributes-v2 API by integrating sub-utility functions to retrieve unique vehicle_ids from OpenSearch based on the drive session table and append these IDs to the existing API response.
+    Attributes:
+        index_name (str): The name of the OpenSearch drive session index.
+    """
 
-Acceptance Criteria
+    def __init__(
+        self: OpenSearchDriveSessionUtilityVar, index_name: str
+    ) -> None:
+        """
+        Initialize the OpenSearchDriveSessionUtility.
 
-	1.	Project-Based Table Name Lookup:
-	•	The fetch-filter-attributes-v2 API uses a utility function to retrieve the drive session table name from the lookup table based on the selected project.
-	2.	Utility Function to Fetch Unique Vehicle IDs:
-	•	A sub-utility function is integrated into the API to query OpenSearch and retrieve unique vehicle_ids.
-	•	The function ensures that only distinct vehicle_ids are fetched.
-	3.	Append to Existing Response:
-	•	The API appends the list of unique vehicle_ids to the existing response structure.
-	4.	Error Handling:
-	•	If no vehicle_ids are found, the API appends an empty list for vehicle_ids in the response.
-	•	If there is an error in retrieving the drive session table name or in the OpenSearch query, a descriptive error message is included in the response.
+        Args:
+            index_name (str): The name of the OpenSearch drive session index.
+        """
+        self.index_name = index_name
 
-Certainly. Here’s how we can break down each subtask into separate user stories with acceptance criteria.
+    def create_query(self: OpenSearchDriveSessionUtilityVar) -> dict[str, Any]:
+        """
+        Create an OpenSearch query to fetch latest `rec_year_month_date`.
 
-User Story 1: Update Filter Attributes Table
+        Returns:
+            dict: The OpenSearch query.
+        """
+        query: dict[str, Any] = {
+            "size": 1,
+            "_source": ["rec_year_month_date"],
+            "sort": [{"rec_year_month_date": {"order": "desc"}}],
+            "query": {"match_all": {}},
+        }
+        return query
 
-Title: Configure vehicle_id as a dropdown in Filter Attributes Table
-Description: As a developer, I want to update the filter attributes DynamoDB table to set vehicle_id as a dropdown option, enabling it to be displayed as a selectable dropdown in Advanced Search.
+    def get_rec_year_month_date(self: OpenSearchDriveSessionUtilityVar) -> str:
+        """
+        Execute an OpenSearch query on the index to get "rec_year_month_date".
 
-Acceptance Criteria
+        Returns:
+            str: The most recent `rec_year_month_date` if found.
+            or empty response if the index doesn't exist.
+        """
+        if client.indices.exists(index=self.index_name):
+            query = self.create_query()
+            response = client.search(index=self.index_name, body=query)
 
-	1.	Database Update:
-	•	vehicle_id is added as a filter attribute in the DynamoDB table.
-	•	The vehicle_id attribute is marked as a dropdown type.
-	2.	Validation:
-	•	Verify that the DynamoDB table reflects the updated schema with vehicle_id marked as a dropdown.
-	3.	Integration Readiness:
-	•	The attribute is correctly set for retrieval by APIs or the frontend for displaying vehicle_id as a dropdown option.
+            if response['hits']['hits']:
+                rec_year_month_date = response['hits']['hits'][0][
+                    '_source'
+                ].get('rec_year_month_date')
+                return (
+                    rec_year_month_date
+                    if rec_year_month_date
+                    else "Unavailable"
+                )
+            return "Unavailable"
+        return "Unavailable"
 
-User Story 2: Create New API for Vehicle ID Retrieval
 
-Title: Develop API to Retrieve Unique Vehicle IDs
-Description: As a developer, I want to create a new API that retrieves unique vehicle_ids from the OpenSearch index based on the project-specific drive session table.
+like that we have to create a class for to get distinct vehicle ids.
+as you have given the query to get the distinct vehicle ids.
+from that query i am getting below query response,
 
-Acceptance Criteria
+{
+  "took": 1,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 34,
+      "relation": "eq"
+    },
+    "max_score": null,
+    "hits": []
+  },
+  "aggregations": {
+    "unique_vehicle_ids": {
+      "after_key": {
+        "vehicle_id": "43"
+      },
+      "buckets": [
+        {
+          "key": {
+            "vehicle_id": "11"
+          },
+          "doc_count": 2
+        },
+        {
+          "key": {
+            "vehicle_id": "41"
+          },
+          "doc_count": 19
+        },
+        {
+          "key": {
+            "vehicle_id": "43"
+          },
+          "doc_count": 13
+        }
+      ]
+    }
+  }
+}
 
-	1.	Endpoint Creation:
-	•	A new API endpoint /get-vehicle-id-list is created to fetch vehicle_ids.
-	2.	Project-Based Table Name Lookup:
-	•	The API retrieves the drive session table name based on the selected project from the lookup table.
-	3.	Unique Vehicle IDs Retrieval:
-	•	The API fetches a list of unique vehicle_ids from the OpenSearch index.
-	•	The API response only includes distinct vehicle_ids, with no duplicates.
-	4.	Error Handling:
-	•	If no vehicle_ids are found, the API returns an empty list with a relevant message.
-	•	If the project ID or table lookup fails, a descriptive error is returned.
-
-User Story 3: Construct OpenSearch Query for Unique Vehicle IDs
-
-Title: Construct Query for Fetching Unique Vehicle IDs from OpenSearch
-Description: As a developer, I want to create a query to retrieve unique vehicle_ids from the OpenSearch index based on the drive session table, so that duplicate vehicle IDs are excluded from the results.
-
-Acceptance Criteria
-
-	1.	Query Design:
-	•	The OpenSearch query is configured to return only unique vehicle_ids.
-	2.	Query Performance:
-	•	The query executes efficiently without significant delay, even with large datasets.
-	3.	Integration with API:
-	•	The query is integrated into the /get-vehicle-id-list API to fetch and return distinct vehicle_ids.
-	4.	Error Handling:
-	•	If an error occurs during the OpenSearch query execution, an appropriate error message is generated and logged for debugging.
-
-These separate user stories allow for focused development and testing of each part, making it easier to track and manage progress.
+please create a class 
