@@ -1,104 +1,111 @@
-reference test case class see below,
+I have below API,
 
-class TestOpenSearchDriveSessionUtility(TestCase):
+
+@app.route('/fetch-filter-attributes-v2', methods=['GET'])
+def get_filter_attributes_v2() -> ResponseReturnValue:
     """
-    Test cases for the OpenSearchDriveSessionUtility class.
+    Fetch filter options from dynamoDB table - version 2.
+
+    Returns:
+        (ResponseReturnValue): filter options list and status code.
     """
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.client = OS_DB_CLIENT
-        cluster_info = cls.client.info()
-        assert cluster_info["cluster_name"] == "docker-cluster"
-        
-    def tearDown(self) -> None:
-        if self.client.indices.exists(index=DRIVE_SESSION_INDEX_NAME):
-            self.client.indices.delete(index=DRIVE_SESSION_INDEX_NAME)
-
-    @mock_aws
-    @patch('utility.get_db_client')
-    def test_create_query(self, mock_get_db_client):
-        """
-        Test create_query method.
-        """
-        mock_get_db_client.return_value = self.client
-        from opensearch_utility import DriveSessionUtility
-
-        drive_utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)
-
-        query = drive_utility.create_query()
-        print(f"query: {query}")
-        self.assertEqual(query, {'size': 1, '_source': ['rec_year_month_date'], 'sort': [{'rec_year_month_date': {'order': 'desc'}}], 'query': {'match_all': {}}}
-                        )
-    
-    @mock_aws
-    @patch('utility.get_db_client')
-    def test_get_rec_year_month_date_with_existing_index(self, mock_get_db_client):
-        """
-        Test that the get_rec_year_month_date method retrieves the most recent
-        'rec_year_month_date' from an existing index when the index exists and 
-        contains valid data.
-        """
-        from opensearch_utility import DriveSessionUtility
-        mock_get_db_client.return_value = self.client
-        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
-             patch("opensearch_utility.client.search") as mock_search:
-
-            mock_exists.return_value = True
-
-            mock_search.return_value = {
-                'hits': {
-                    'hits': [
-                        {
-                            '_source': {
-                                'rec_year_month_date': '20240115'
-                            }
-                        }
-                    ]
-                }
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        project_name = request.args.get('project_name')
+        lookup_response = lookup_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(project_name)
+        )
+        items = lookup_response.items('Items', [])
+        drive_session_index_name = ""
+        for item in items:
+            drive_session_index_name = item.get("drive_session_table_name")
+        filter_response = filter_attributes_table.get_item(
+            Key={'page': page, 'filter_level': filter_level}
+        )
+        if page == "event_sessions":
+            generation = request.args.get('generation')
+            if generation is not None and generation.isdigit():
+                generation = str(float(generation))
+            common_attributes = filter_response['Item']['common_attributes']
+            gen_attributes = filter_response['Item'][f'gen_attributes_{generation}']
+            response = {
+                **common_attributes,  # type: ignore
+                **gen_attributes,  # type: ignore
             }
-
-            utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)            
-            rec_date = utility.get_rec_year_month_date()
-            self.assertEqual(rec_date, "20240115")
-
-    @mock_aws
-    @patch('utility.get_db_client')
-    def test_get_rec_year_month_date_with_no_date(self, mock_get_db_client):
-        """
-        Test that the get_rec_year_month_date method returns 'NA' when the index exists,
-        but no 'rec_year_month_date' is found in the search response.
-        """
-        from opensearch_utility import DriveSessionUtility
-        mock_get_db_client.return_value = self.client
-        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
-             patch("opensearch_utility.client.search") as mock_search:
-
-            mock_exists.return_value = True
-
-            mock_search.return_value = {
-                'hits': {
-                    'hits': []
-                }
-            }
-            utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)
-            rec_date = utility.get_rec_year_month_date()
-            self.assertEqual(rec_date, "Unavailable")
-
-    @mock_aws
-    @patch('utility.get_db_client')
-    def test_get_rec_year_month_date_with_non_existing_index(self, mock_get_db_client):
-        ""
-        Test that the get_rec_year_month_date method returns 'NA' when the index does
-        not exist (i.e., the index is not found in OpenSearch).
-        """
-        from opensearch_utility import DriveSessionUtility
-        mock_get_db_client.return_value = self.client
-
-        with patch("opensearch_utility.client.indices.exists") as mock_exists:
-            mock_exists.return_value = False
-            utility = DriveSessionUtility(index_name=DRIVE_SESSION_INDEX_NAME)
-            rec_date = utility.get_rec_year_month_date()
-            self.assertEqual(rec_date, "Unavailable")
+        else:
+            response = filter_response['Item']['attributes']  # type: ignore
+        logging.info(
+            f"dynamoDB response for fetching filter " f"attributes: {response}"
+        )
+        return (
+            jsonify(response),  # type: ignore
+            200,
+        )
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return (
+            jsonify({'message': "No generation category information found"}),
+            404,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
 
 
-As you have given the drivesessionvehicleutility class please write test class for that please refer above class.
+Response:
+{
+    "rec_year_month": {
+        "type": "text",
+        "component": "DatePicker",
+        "props": {
+            "format": "YYYY/MM"
+        }
+    },
+    "folder_name": {
+        "type": "text",
+        "component": "Text",
+        "props": {
+            "variant": "outlined",
+            "label": "folder_name"
+        }
+    },
+    "rec_year_month_date": {
+        "type": "text",
+        "component": "DatePicker",
+        "props": {
+            "format": "YYYY/MM/DD"
+        }
+    },
+    "rec_year_month_date_range": {
+        "type": "range",
+        "component": "DateTimeRangeFilter",
+        "db_fields": [
+            "rec_year_month_date"
+        ]
+    },
+    "vehicle_id": {
+        "type": "text",
+        "component": "Selection",
+        "props": {
+            "variant": "outlined",
+            "dropdown_name": "vehicle_id",
+            "label": "vehicle_id",
+            "visibility": true,
+            "dropdown_values": [],
+            "values": []
+        }
+    },
+    "tags": {
+        "multiple": "true",
+        "component": "Text",
+        "type": "text",
+        "props": {
+            "variant": "outlined",
+            "label": "tags"
+        }
+    }
+}
+
+I want to write an utility function to append the vehicle ids into the response of vehicle_id dropdown values.  
+Also we have DriveSessionVehicleUtility class which retruns list of vehicle ids or empty list
