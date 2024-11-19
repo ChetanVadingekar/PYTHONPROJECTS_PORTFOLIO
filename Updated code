@@ -1,181 +1,69 @@
-from unittest import TestCase
-from unittest.mock import patch
-from opensearchpy import OpenSearch
-from typing import List, Dict
+I have this API see below,
 
-DRIVE_SESSION_INDEX_NAME = "adcp-us-project-01-drive-data"
-
-class TestDriveSessionVehicleUtility(TestCase):
+@app.route('/fetch-filter-attributes-v2', methods=['GET'])
+def get_filter_attributes_v2() -> ResponseReturnValue:
     """
-    Test cases for the DriveSessionVehicleUtility class.
+    Fetch filter options from dynamoDB table - version 2.
+
+    Returns:
+        (ResponseReturnValue): filter options list and status code.
     """
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.client = OpenSearch()
-        cluster_info = cls.client.info()
-        assert cluster_info["cluster_name"] == "docker-cluster"
-
-    def tearDown(self) -> None:
-        if self.client.indices.exists(index=DRIVE_SESSION_INDEX_NAME):
-            self.client.indices.delete(index=DRIVE_SESSION_INDEX_NAME)
-
-    @patch("utility.get_db_client")
-    def test_create_vehicle_id_query(self, mock_get_db_client):
-        """
-        Test create_vehicle_id_query method.
-        """
-        from opensearch_utility import DriveSessionVehicleUtility
-        mock_get_db_client.return_value = self.client
-
-        vehicle_utility = DriveSessionVehicleUtility(
-            index_name=DRIVE_SESSION_INDEX_NAME, client=self.client
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        project_name = request.args.get('project_name')
+        lookup_response = lookup_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
+                project_name
+            )
         )
-        query = vehicle_utility.create_vehicle_id_query()
-        
-        expected_query = {
-            "size": 0,
-            "aggs": {
-                "unique_vehicle_ids": {
-                    "composite": {
-                        "size": 1000,
-                        "sources": [{"vehicle_id": {"terms": {"field": "vehicle_id"}}}]
-                    }
-                }
-            }
-        }
-        self.assertEqual(query, expected_query)
-
-    @patch("utility.get_db_client")
-    def test_get_unique_vehicle_ids_with_existing_index(self, mock_get_db_client):
-        """
-        Test that get_unique_vehicle_ids retrieves distinct vehicle IDs
-        when the index exists and contains valid data.
-        """
-        from opensearch_utility import DriveSessionVehicleUtility
-        mock_get_db_client.return_value = self.client
-
-        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
-             patch("opensearch_utility.client.search") as mock_search:
-            
-            mock_exists.return_value = True
-
-            # Sample OpenSearch response for composite aggregation
-            mock_search.return_value = {
-                "aggregations": {
-                    "unique_vehicle_ids": {
-                        "buckets": [
-                            {"key": {"vehicle_id": "11"}, "doc_count": 2},
-                            {"key": {"vehicle_id": "41"}, "doc_count": 19},
-                            {"key": {"vehicle_id": "43"}, "doc_count": 13}
-                        ]
-                    }
-                }
-            }
-
-            vehicle_utility = DriveSessionVehicleUtility(
-                index_name=DRIVE_SESSION_INDEX_NAME, client=self.client
-            )
-            vehicle_ids = vehicle_utility.get_unique_vehicle_ids()
-            self.assertEqual(vehicle_ids, ["11", "41", "43"])
-
-    @patch("utility.get_db_client")
-    def test_get_unique_vehicle_ids_with_no_results(self, mock_get_db_client):
-        """
-        Test that get_unique_vehicle_ids returns an empty list when
-        the index exists but no vehicle IDs are found in the search response.
-        """
-        from opensearch_utility import DriveSessionVehicleUtility
-        mock_get_db_client.return_value = self.client
-
-        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
-             patch("opensearch_utility.client.search") as mock_search:
-
-            mock_exists.return_value = True
-            mock_search.return_value = {
-                "aggregations": {
-                    "unique_vehicle_ids": {
-                        "buckets": []
-                    }
-                }
-            }
-
-            vehicle_utility = DriveSessionVehicleUtility(
-                index_name=DRIVE_SESSION_INDEX_NAME, client=self.client
-            )
-            vehicle_ids = vehicle_utility.get_unique_vehicle_ids()
-            self.assertEqual(vehicle_ids, [])
-
-    @patch("utility.get_db_client")
-    def test_get_unique_vehicle_ids_with_non_existing_index(self, mock_get_db_client):
-        """
-        Test that get_unique_vehicle_ids returns an empty list when
-        the index does not exist.
-        """
-        from opensearch_utility import DriveSessionVehicleUtility
-        mock_get_db_client.return_value = self.client
-
-        with patch("opensearch_utility.client.indices.exists") as mock_exists:
-            mock_exists.return_value = False
-
-            vehicle_utility = DriveSessionVehicleUtility(
-                index_name=DRIVE_SESSION_INDEX_NAME, client=self.client
-            )
-            vehicle_ids = vehicle_utility.get_unique_vehicle_ids()
-            self.assertEqual(vehicle_ids, [])
-
-    @patch("utility.get_db_client")
-    def test_get_unique_vehicle_ids_with_pagination(self, mock_get_db_client):
-        """
-        Test that get_unique_vehicle_ids handles pagination when there are more than 1000
-        vehicle IDs, requiring multiple queries to retrieve all unique IDs.
-        """
-        from opensearch_utility import DriveSessionVehicleUtility
-        mock_get_db_client.return_value = self.client
-
-        with patch("opensearch_utility.client.indices.exists") as mock_exists, \
-             patch("opensearch_utility.client.search") as mock_search:
-            
-            mock_exists.return_value = True
-
-            # Mock OpenSearch responses to simulate pagination
-            mock_search.side_effect = [
-                {
-                    "aggregations": {
-                        "unique_vehicle_ids": {
-                            "buckets": [
-                                {"key": {"vehicle_id": "11"}, "doc_count": 2},
-                                {"key": {"vehicle_id": "41"}, "doc_count": 19}
-                            ],
-                            "after_key": {"vehicle_id": "41"}
-                        }
-                    }
-                },
-                {
-                    "aggregations": {
-                        "unique_vehicle_ids": {
-                            "buckets": [
-                                {"key": {"vehicle_id": "42"}, "doc_count": 13},
-                                {"key": {"vehicle_id": "43"}, "doc_count": 5}
-                            ],
-                            "after_key": {"vehicle_id": "43"}
-                        }
-                    }
-                },
-                {
-                    "aggregations": {
-                        "unique_vehicle_ids": {
-                            "buckets": [],
-                            # No after_key in the last page
-                        }
-                    }
-                }
+        items = lookup_response.get('Items', [])
+        drive_session_index_name = ""
+        for item in items:
+            drive_session_index_name = item.get("drive_session_table_name")
+        filter_response = filter_attributes_table.get_item(
+            Key={'page': page, 'filter_level': filter_level}
+        )
+        if page == "event_sessions":
+            generation = request.args.get('generation')
+            if generation is not None and generation.isdigit():
+                generation = str(float(generation))
+            common_attributes = filter_response['Item']['common_attributes']
+            gen_attributes = filter_response['Item'][
+                f'gen_attributes_{generation}'
             ]
-
-            vehicle_utility = DriveSessionVehicleUtility(
-                index_name=DRIVE_SESSION_INDEX_NAME, client=self.client
+            response = {
+                **common_attributes,  # type: ignore
+                **gen_attributes,  # type: ignore
+            }
+            final_response = append_vehicle_ids(
+                response, drive_session_index_name
             )
-            vehicle_ids = vehicle_utility.get_unique_vehicle_ids()
+        else:
+            response = filter_response['Item']['attributes']  # type: ignore
+            final_response = append_vehicle_ids(
+                response, drive_session_index_name
+            )
+        logging.info(
+            f"dynamoDB response for fetching filter "
+            f"attributes: {final_response}"
+        )
+        return (
+            jsonify(final_response),  # type: ignore
+            200,
+        )
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return (
+            jsonify({'message': "No generation category information found"}),
+            404,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
 
-            # Expected vehicle IDs combined from multiple pages
-            expected_vehicle_ids = ["11", "41", "42", "43"]
-            self.assertEqual(vehicle_ids, expected_vehicle_ids)
+I am getting static code analysis error, see below 
+
+Incompatible types in assignment (expression has type "Union[bytes, bytearray, str, int, Decimal, <7 more items>, None]", variable has type "str")  [assignment]
+
+Please fix this issue? 
