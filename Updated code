@@ -1,496 +1,123 @@
-@app.route('/fetch-filter-attributes-v2', methods=['GET'])
-def get_filter_attributes_v2() -> ResponseReturnValue:
-    """
-    Fetch filter options from dynamoDB table - version 2.
+tests/test_main.py [INFO] - 2024-11-21 21:27:03,865 - helpers - Parameters store: Lookup: FOT-Honda-lookup, MapDetails: global-map-details, FilterAttr: dmp-filter-attributes, UserTable: users, UserPoolID: ap-northeast-1_f3bcc01b8f18477ab1d861fd3b009c84, RoleTable: role-info
+F
 
-    Returns:
-        (ResponseReturnValue): filter options list and status code.
-    """
-    try:
-        page = request.args.get('page')
-        filter_level = request.args.get('filter_level')
-        project_name = request.args.get('project_name')
-        lookup_response = lookup_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-                project_name
-            )
-        )
-        items = lookup_response.get('Items', [])
-        drive_session_index_name = ""
-        for item in items:
-            drive_session_index_name = str(
-                item.get("drive_session_table_name", "")
-            )
-        filter_response = filter_attributes_table.get_item(
-            Key={'page': page, 'filter_level': filter_level}
-        )
-        if page == "event_sessions":
-            generation = request.args.get('generation')
-            if generation is not None and generation.isdigit():
-                generation = str(float(generation))
-            common_attributes = filter_response['Item']['common_attributes']
-            gen_attributes = filter_response['Item'][
-                f'gen_attributes_{generation}'
-            ]
-            response = {
-                **common_attributes,  # type: ignore
-                **gen_attributes,  # type: ignore
-            }
-            final_response = append_vehicle_ids(
-                response, drive_session_index_name
-            )
-        else:
-            response = filter_response['Item']['attributes']  # type: ignore
-            final_response = append_vehicle_ids(
-                response, drive_session_index_name
-            )
-        logging.info(
-            f"dynamoDB response for fetching filter "
-            f"attributes: {final_response}"
-        )
-        return (
-            jsonify(final_response),  # type: ignore
-            200,
-        )
-    except KeyError as e:
-        logging.error("KeyError occurred: %s", str(e))
-        return (
-            jsonify({'message': "No generation category information found"}),
-            404,
-        )
-    except Exception as e:
-        logging.exception(f"An error occurred: {str(e)}")
-        return jsonify({"message": str(e)}), 500
+============================================== FAILURES ==============================================
+_________________________________ test_get_filter_attributes_v2_new __________________________________
 
-I have wriiten one test case for this api see below,
+ssm_client = <botocore.client.SSM object at 0x7f8028799dc0>
+cognito_client = (<botocore.client.CognitoIdentityProvider object at 0x7f80285cc730>, 'ap-northeast-1_f3bcc01b8f18477ab1d861fd3b009c84')
+cloudwatch_log_client = <botocore.client.CloudWatchLogs object at 0x7f8027688cd0>
+dynamodb_resource = dynamodb.ServiceResource()
 
-@mock_aws
-def test_get_filter_attributes_v2_new(ssm_client, cognito_client, cloudwatch_log_client, dynamodb_resource):
-    """Test fetching filter attributes version 2."""
+    @mock_aws
+    def test_get_filter_attributes_v2_new(ssm_client, cognito_client, cloudwatch_log_client, dynamodb_resource):
+        """Test fetching filter attributes version 2."""
     
-    client, user_pool_id = cognito_client
-    put_parameter_store_config(ssm_client, ENV, user_pool_id)
-    create_users_table(dynamodb_resource)
-    user_table = dynamodb_resource.Table(USER_TABLE_NAME)
-    insert_items_into_users_table(user_table)
-    create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
-   
-    with patch("main.filter_attributes_table") as mock_filter_table, \
-         patch("utility.get_db_client") as mock_db_client:
+        client, user_pool_id = cognito_client
+        put_parameter_store_config(ssm_client, ENV, user_pool_id)
+        create_users_table(dynamodb_resource)
+        user_table = dynamodb_resource.Table(USER_TABLE_NAME)
+        insert_items_into_users_table(user_table)
+        create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+    
+>       with patch("main.filter_attributes_table") as mock_filter_table, \
+            patch("main.lookup_table") as mock_lookup_table, \
+            patch("utility.get_db_client") as mock_db_client:
 
-        mock_filter_table.get_item.return_value = {
-            "Item": {
-                key: deserializer.deserialize(value) for key, value in SAMPLE_FILTER_DATA_V2.items()
-            }
-        }
+tests/test_main.py:7109: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.9/unittest/mock.py:1388: in __enter__
+    self.target = self.getter()
+/usr/lib/python3.9/unittest/mock.py:1563: in <lambda>
+    getter = lambda: _importer(target)
+/usr/lib/python3.9/unittest/mock.py:1235: in _importer
+    thing = __import__(import_path)
+main.py:38: in <module>
+    from import_label_report_utility import LabelReport  # type: ignore
+import_label_report_utility.py:22: in <module>
+    from opensearch_utility import OpenSearchQueryUtility  # type: ignore
+opensearch_utility.py:52: in <module>
+    client = get_db_client(db_name="OpenSearchDB", env=ENV)
+utility.py:429: in get_db_client
+    db_client = OpenSearch(
+../../../env/lib/python3.9/site-packages/opensearchpy/client/__init__.py:214: in __init__
+    super().__init__(hosts, transport_class, **kwargs)
+../../../env/lib/python3.9/site-packages/opensearchpy/client/client.py:41: in __init__
+    self.transport = transport_class(_normalize_hosts(hosts), **kwargs)
+../../../env/lib/python3.9/site-packages/opensearchpy/transport.py:201: in __init__
+    self.set_connections(hosts)
+../../../env/lib/python3.9/site-packages/opensearchpy/transport.py:255: in set_connections
+    connections = list(zip(map(_create_connection, hosts), hosts))
+../../../env/lib/python3.9/site-packages/opensearchpy/transport.py:253: in _create_connection
+    return self.connection_class(metrics=self.metrics, **kwargs)
+../../../env/lib/python3.9/site-packages/opensearchpy/connection/http_urllib3.py:130: in __init__
+    super().__init__(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-        mock_db_client.return_value = OS_DB_CLIENT
+self = <[AttributeError("'Urllib3HttpConnection' object has no attribute 'host'") raised in repr()] Urllib3HttpConnection object at 0x7f8024af4f10>
+host = None, port = 9200, use_ssl = True, url_prefix = '', timeout = 10, headers = {}
+http_compress = True, opaque_id = None, kwargs = {}, scheme = 'https'
 
-        from main import app
-        app.config['TESTING'] = True
-        with app.test_client() as client:
-            client.set_cookie("user_id", "100")
-            response = client.get('/fetch-filter-attributes-v2',
-                                  query_string={
-                                      'page': "event_sessions",
-                                      'filter_level': "L3",
-                                      'generation': "1.0",
-                                      'project_name': "us-project-01"
-                                  })
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: Optional[int] = None,
+        use_ssl: bool = False,
+        url_prefix: str = "",
+        timeout: int = 10,
+        headers: Optional[Dict[str, str]] = None,
+        http_compress: Optional[bool] = None,
+        opaque_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if port is None:
+            port = 9200
+    
+        # Work-around if the implementing class doesn't
+        # define the headers property before calling super().__init__()
+        if not hasattr(self, "headers"):
+            self.headers = {}
+    
+        headers = headers or {}
+        for key in headers:
+            self.headers[key.lower()] = headers[key]
+        if opaque_id:
+            self.headers["x-opaque-id"] = opaque_id
+    
+        if os.getenv("ELASTIC_CLIENT_APIVERSIONING") == "1":
+            self.headers.setdefault(
+                "accept", "application/vnd.elasticsearch+json;compatible-with=7"
+            )
+    
+        self.headers.setdefault("content-type", "application/json")
+        self.headers.setdefault("user-agent", self._get_default_user_agent())
+    
+        if http_compress:
+            self.headers["accept-encoding"] = "gzip,deflate"
+    
+        scheme = kwargs.get("scheme", "http")
+        if use_ssl or scheme == "https":
+            scheme = "https"
+            use_ssl = True
+        self.use_ssl = use_ssl
+        self.http_compress = http_compress or False
+    
+        self.scheme = scheme
+        self.hostname = host
+        self.port = port
+>       if ":" in host:  # IPv6
+E       TypeError: argument of type 'NoneType' is not iterable
 
-            print("Response:", response.json)
+../../../env/lib/python3.9/site-packages/opensearchpy/connection/base.py:121: TypeError
+========================================== warnings summary ==========================================
+../../../env/lib/python3.9/site-packages/opensearchpy/connection/http_urllib3.py:214
+  /home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/opensearchpy/connection/http_urllib3.py:214: UserWarning: Connecting to https://localhost:9200 using SSL with verify_certs=False is insecure.
+    warnings.warn(
 
-            expected_response = {
-                'date_time_range': {
-                    'component': 'DateTimeRange',
-                    'db_fields': ['start_time', 'stop_time'],
-                    'type': 'range'
-                },
-                'event_name': {
-                    'component': 'Text',
-                    'props': {'label': 'event_name', 'variant': 'outlined'},
-                    'type': 'text'
-                },
-                'day_time': {
-                    'component': 'Selection',
-                    'props': {
-                        'dropdown_name': 'Day Time',
-                        'dropdown_values': ['day', 'dawn', 'dusk', 'night'],
-                        'values': [],
-                        'visibility': 'true',
-                        'chart_type': 'pie',
-                        'color_mapping': {'day': '#add8e6', 'dawn': '#f03775', 'dusk': '#191970', 'night': '#391a59'}
-                    },
-                    'type': 'text'
-                },
-                'object_classification': {
-                    'component': 'Selection',
-                    'props': {
-                        'dropdown_name': 'Object Classification',
-                        'dropdown_values': ['pedestrian', 'bicycle', 'animal', 'small car', 'passenger car',
-                                            'motorbike', 'long vehicles (>8m)', 'special vehicle'],
-                        'values': [],
-                        'visibility': 'true',
-                        'chart_type': 'bar',
-                        'color_mapping': {'default': '#6b8e23'}
-                    },
-                    'type': 'text'
-                }
-            }
+../../../env/lib/python3.9/site-packages/urllib3/connectionpool.py:1064
+  /home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/urllib3/connectionpool.py:1064: InsecureRequestWarning: Unverified HTTPS request is being made to host 'localhost'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/1.26.x/advanced-usage.html#ssl-warnings
+    warnings.warn(
 
-
-            data = response.json
-            assert response.status_code == 200
-            assert data == expected_response
-
-but i am getting error as tests/test_main.py::test_get_filter_attributes_v2_new - TypeError: argument of type 'NoneType' is not iterable
-
-also do we need to patch lookup table? if yes please patch it.
-
-also i have updated the SAMPLE_FILTER_DATA_V2 see below,
-
-SAMPLE_FILTER_DATA_V2 = {
-  "page": {
-    "S": "event_sessions"
-  },
-  "filter_level": {
-    "S": "L3"
-  },
-  "common_attributes": {
-    "M": {
-      "date_time_range": {
-        "M": {
-          "component": {
-            "S": "DateTimeRange"
-          },
-          "db_fields": {
-            "L": [
-              {
-                "S": "start_time"
-              },
-              {
-                "S": "stop_time"
-              }
-            ]
-          },
-          "type": {
-            "S": "range"
-          }
-        }
-      },
-      "event_name": {
-        "M": {
-          "component": {
-            "S": "Text"
-          },
-          "props": {
-            "M": {
-              "label": {
-                "S": "event_name"
-              },
-              "variant": {
-                "S": "outlined"
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      },
-      "vehicle_id": {
-        "M": {
-          "component": {
-            "S": "Selection"
-          },
-          "props": {
-            "M": {
-              "dropdown_name": {
-                "S": "vehicle_id"
-              },
-              "dropdown_values": {
-                "L": []
-              },
-              "label": {
-                "S": "vehicle_id"
-              },
-              "values": {
-                "L": []
-              },
-              "variant": {
-                "S": "outlined"
-              },
-              "visibility": {
-                "BOOL": "true"
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      }
-    }
-  },
-  "gen_attributes_1.0": {
-    "M": {
-      "day_time": {
-        "M": {
-          "component": {
-            "S": "Selection"
-          },
-          "props": {
-            "M": {
-              "dropdown_name": {
-                "S": "Day Time"
-              },
-              "dropdown_values": {
-                "L": [
-                  {
-                    "S": "day"
-                  },
-                  {
-                    "S": "dawn"
-                  },
-                  {
-                    "S": "dusk"
-                  },
-                  {
-                    "S": "night"
-                  }
-                ]
-              },
-              "values": {
-                "L": []
-              },
-              "visibility": {
-                "BOOL": "true"
-              },
-              "chart_type": {
-                "S": "pie"
-              },
-              "color_mapping": {
-                "M": {
-                  "day": {
-                    "S": "#add8e6"
-                  },
-                  "dawn": {
-                    "S": "#f03775"
-                  },
-                  "dusk": {
-                    "S": "#191970"
-                  },
-                  "night": {
-                    "S": "#391a59"
-                  }
-                }
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      },
-      "object_classification": {
-        "M": {
-          "component": {
-            "S": "Selection"
-          },
-          "props": {
-            "M": {
-              "dropdown_name": {
-                "S": "Object Classification"
-              },
-              "dropdown_values": {
-                "L": [
-                  {
-                    "S": "pedestrian"
-                  },
-                  {
-                    "S": "bicycle"
-                  },
-                  {
-                    "S": "animal"
-                  },
-                  {
-                    "S": "small car"
-                  },
-                  {
-                    "S": "passenger car"
-                  },
-                  {
-                    "S": "motorbike"
-                  },
-                  {
-                    "S": "long vehicles (>8m)"
-                  },
-                  {
-                    "S": "special vehicle"
-                  }
-                ]
-              },
-              "values": {
-                "L": []
-              },
-              "visibility": {
-                "BOOL": "true"
-              },
-              "chart_type": {
-                "S": "bar"
-              },
-              "color_mapping": {
-                "M": {
-                  "default": {
-                    "S": "#6b8e23"
-                  }
-                }
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      }
-    }
-  },
-  "gen_attributes_3.0": {
-    "M": {
-      "day_time": {
-        "M": {
-          "component": {
-            "S": "Selection"
-          },
-          "props": {
-            "M": {
-              "dropdown_name": {
-                "S": "Day Time"
-              },
-              "dropdown_values": {
-                "L": [
-                  {
-                    "S": "day"
-                  },
-                  {
-                    "S": "dusk/dawn"
-                  },
-                  {
-                    "S": "night"
-                  }
-                ]
-              },
-              "values": {
-                "L": []
-              },
-              "visibility": {
-                "BOOL": "true"
-              },
-              "chart_type": {
-                "S": "pie"
-              },
-              "color_mapping": {
-                "M": {
-                  "day": {
-                    "S": "#add8e6"
-                  },
-                  "dusk/dawn": {
-                    "S": "#f03775"
-                  },
-                  "night": {
-                    "S": "#191970"
-                  }
-                }
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      },
-      "lane_features": {
-        "M": {
-          "component": {
-            "S": "Selection"
-          },
-          "props": {
-            "M": {
-              "dropdown_name": {
-                "S": "Lane Features"
-              },
-              "dropdown_values": {
-                "L": [
-                  {
-                    "S": "long slope"
-                  },
-                  {
-                    "S": "road merging"
-                  },
-                  {
-                    "S": "sa/pa"
-                  },
-                  {
-                    "S": "ramp/jct/ic"
-                  },
-                  {
-                    "S": "another lane(parallel/overlap)"
-                  },
-                  {
-                    "S": "roundabout"
-                  },
-                  {
-                    "S": "stacked roads"
-                  },
-                  {
-                    "S": "crossroad/intersection"
-                  },
-                  {
-                    "S": "ramp fork"
-                  },
-                  {
-                    "S": "slight angle"
-                  },
-                  {
-                    "S": "reversible lane/zipper lane"
-                  },
-                  {
-                    "S": "underpass"
-                  },
-                  {
-                    "S": "curve sign w/reduce speed"
-                  },
-                  {
-                    "S": "concrete lane/cobblestone"
-                  },
-                  {
-                    "S": "carpool lane"
-                  }
-                ]
-              },
-              "values": {
-                "L": []
-              },
-              "visibility": {
-                "BOOL": "true"
-              },
-              "chart_type": {
-                "S": "bar"
-              },
-              "color_mapping": {
-                "M": {
-                  "default": {
-                    "S": "#6b8e23"
-                  }
-                }
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      }
-    }
-  }
-}
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+====================================== short test summary info =======================================
+FAILED tests/test_main.py::test_get_filter_attributes_v2_new - TypeError: argument of type 'NoneType' is not iterable
