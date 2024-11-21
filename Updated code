@@ -1,175 +1,94 @@
-I have fetch-filter-attributes-v2 API,
-
-
-@app.route('/fetch-filter-attributes-v2', methods=['GET'])
-def get_filter_attributes_v2() -> ResponseReturnValue:
-    """
-    Fetch filter options from dynamoDB table - version 2.
-
-    Returns:
-        (ResponseReturnValue): filter options list and status code.
-    """
-    try:
-        page = request.args.get('page')
-        filter_level = request.args.get('filter_level')
-        project_name = request.args.get('project_name')
-        lookup_response = lookup_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-                project_name
-            )
-        )
-        items = lookup_response.get('Items', [])
-        drive_session_index_name = ""
-        for item in items:
-            drive_session_index_name = str(
-                item.get("drive_session_table_name", "")
-            )
-        filter_response = filter_attributes_table.get_item(
-            Key={'page': page, 'filter_level': filter_level}
-        )
-        if page == "event_sessions":
-            generation = request.args.get('generation')
-            if generation is not None and generation.isdigit():
-                generation = str(float(generation))
-            common_attributes = filter_response['Item']['common_attributes']
-            gen_attributes = filter_response['Item'][
-                f'gen_attributes_{generation}'
-            ]
-            response = {
-                **common_attributes,  # type: ignore
-                **gen_attributes,  # type: ignore
-            }
-            final_response = append_vehicle_ids(
-                response, drive_session_index_name
-            )
-        else:
-            response = filter_response['Item']['attributes']  # type: ignore
-            final_response = append_vehicle_ids(
-                response, drive_session_index_name
-            )
-        logging.info(
-            f"dynamoDB response for fetching filter "
-            f"attributes: {final_response}"
-        )
-        return (
-            jsonify(final_response),  # type: ignore
-            200,
-        )
-    except KeyError as e:
-        logging.error("KeyError occurred: %s", str(e))
-        return (
-            jsonify({'message': "No generation category information found"}),
-            404,
-        )
-    except Exception as e:
-        logging.exception(f"An error occurred: {str(e)}")
-        return jsonify({"message": str(e)}), 500
-
-we have made some chagnes in above API so we need to modify the test case see below
-
-
 @mock_aws
-@pytest.mark.usefixtures("dynamodb_resource")
-@patch("main.filter_attributes_table")
-def test_get_filter_attributes_v2(mock_ddb, cloudwatch_log_client, ssm_client,
-                                  dynamodb_resource):
+def test_get_filter_attributes_v2(cloudwatch_log_client, ssm_client, dynamodb_resource):
     """Test fetching filter attributes version 2."""
-    put_parameter_store_config(ssm_client, ENV)
+    # Mock SSM Parameter Store
+    ssm_client.put_parameter(
+        Name="/Dev/UserManagement/DDB/UserTable",
+        Value="TestUserTable",
+        Type="String"
+    )
+    ssm_client.put_parameter(
+        Name="/Dev/UserManagement/DDB/LookupTable",
+        Value="TestLookupTable",
+        Type="String"
+    )
 
+    # Setup DynamoDB mock resources
     create_users_table(dynamodb_resource)
     user_table = dynamodb_resource.Table(USER_TABLE_NAME)
     insert_items_into_users_table(user_table)
+    create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
 
-    create_cloudwatch_log_group(
-        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+    # Start mocking using context managers
+    with patch("main.filter_attributes_table") as mock_filter_table, \
+         patch("utility.get_db_client") as mock_db_client:
 
-    with patch('utility.get_db_client') as mock_db_client:
+        # Mock DynamoDB behavior
+        mock_filter_table.get_item.return_value = {
+            "Item": {
+                key: deserializer.deserialize(value) for key, value in SAMPLE_FILTER_DATA_V2.items()
+            }
+        }
+
+        # Mock database client
         mock_db_client.return_value = OS_DB_CLIENT
+
+        # Initialize Flask test client
         from main import app
         app.config['TESTING'] = True
         with app.test_client() as client:
             client.set_cookie("user_id", "100")
-            mock_get_item = Mock()
-            mock_get_item.return_value = {
-                "Item": {
-                    key: deserializer.deserialize(value) for key, value in
-                    SAMPLE_FILTER_DATA_V2.items()
+            response = client.get('/fetch-filter-attributes-v2',
+                                  query_string={
+                                      'page': "event_sessions",
+                                      'filter_level': "L3",
+                                      'generation': "1.0",
+                                      'project_name': "us-project-01"
+                                  })
+
+            # Log response for debugging
+            print("Response:", response.json)
+
+            # Define expected response
+            expected_response = {
+                'date_time_range': {
+                    'component': 'DateTimeRange',
+                    'db_fields': ['start_time', 'stop_time'],
+                    'type': 'range'
+                },
+                'event_name': {
+                    'component': 'Text',
+                    'props': {'label': 'event_name', 'variant': 'outlined'},
+                    'type': 'text'
+                },
+                'day_time': {
+                    'component': 'Selection',
+                    'props': {
+                        'dropdown_name': 'Day Time',
+                        'dropdown_values': ['day', 'dawn', 'dusk', 'night'],
+                        'values': [],
+                        'visibility': 'true',
+                        'chart_type': 'pie',
+                        'color_mapping': {'day': '#add8e6', 'dawn': '#f03775', 'dusk': '#191970', 'night': '#391a59'}
+                    },
+                    'type': 'text'
+                },
+                'object_classification': {
+                    'component': 'Selection',
+                    'props': {
+                        'dropdown_name': 'Object Classification',
+                        'dropdown_values': ['pedestrian', 'bicycle', 'animal', 'small car', 'passenger car',
+                                            'motorbike', 'long vehicles (>8m)', 'special vehicle'],
+                        'values': [],
+                        'visibility': 'true',
+                        'chart_type': 'bar',
+                        'color_mapping': {'default': '#6b8e23'}
+                    },
+                    'type': 'text'
                 }
             }
-            mock_ddb.get_item = mock_get_item
-            response = client.get('/fetch-filter-attributes-v2',
-                                  query_string={'page': "event_sessions",
-                                                'filter_level': "L3",
-                                                'generation': "1.0",
-                                                'project-name': "us-project-01"})
-            print("Response: {response}")
-            expected_response = {
-                'date_time_range':
-                    {
-                        'component': 'DateTimeRange',
-                        'db_fields': ['start_time', 'stop_time'],
-                        'type': 'range'
-                    },
-                'event_name':
-                    {
-                        'component': 'Text',
-                        'props': {'label': 'event_name',
-                                  'variant': 'outlined'}, 'type': 'text'
-                    },
-                'day_time':
-                    {
-                        'component': 'Selection',
-                        'props': {
-                            'dropdown_name': 'Day Time',
-                            'dropdown_values': ['day', 'dawn', 'dusk',
-                                                'night'],
-                            'values': [],
-                            'visibility': 'true',
-                            'chart_type': 'pie',
-                            'color_mapping': {'day': '#add8e6',
-                                              'dawn': '#f03775',
-                                              'dusk': '#191970',
-                                              'night': '#391a59'}
-                        },
-                        'type': 'text'
-                    },
-                'object_classification':
-                    {
-                        'component': 'Selection',
-                        'props': {
-                            'dropdown_name': 'Object Classification',
-                            'dropdown_values': ['pedestrian', 'bicycle',
-                                                'animal', 'small car',
-                                                'passenger car', 'motorbike',
-                                                'long vehicles (>8m)',
-                                                'special vehicle'],
-                            'values': [],
-                            'visibility': 'true',
-                            'chart_type': 'bar',
-                            'color_mapping': {'default': '#6b8e23'}
-                        },
-                        'type': 'text'
-                    }
-            }
 
+            # Validate the response
             data = response.json
             assert response.status_code == 200
             assert data == expected_response
-
-
-When we run this test case individually this test case getting failed and getting below error
-
-tests/test_main.py [ERROR] - 2024-11-21 17:09:11,976 - helpers - Could not find one or more parameters in Parameter Store
-Traceback (most recent call last):
-  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/helpers.py", line 71, in get_ddb_table_names
-    table_names['user_table'] = ssm_client.get_parameter(
-  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/botocore/client.py", line 569, in _api_call
-    return self._make_api_call(operation_name, kwargs)
-  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/botocore/client.py", line 1023, in _make_api_call
-    raise error_class(parsed_response, operation_name)
-botocore.errorfactory.ParameterNotFound: An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Dev/UserManagement/DDB/UserTable not found.
-[INFO] - 2024-11-21 17:09:11,977 - help
-
-also when we run this altogether it also failed
-
-please fix this issue?
