@@ -1,69 +1,48 @@
-I have this API see below,
-
-@app.route('/fetch-filter-attributes-v2', methods=['GET'])
-def get_filter_attributes_v2() -> ResponseReturnValue:
-    """
-    Fetch filter options from dynamoDB table - version 2.
-
-    Returns:
-        (ResponseReturnValue): filter options list and status code.
-    """
-    try:
-        page = request.args.get('page')
-        filter_level = request.args.get('filter_level')
-        project_name = request.args.get('project_name')
-        lookup_response = lookup_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-                project_name
-            )
-        )
-        items = lookup_response.get('Items', [])
-        drive_session_index_name = ""
-        for item in items:
-            drive_session_index_name = item.get("drive_session_table_name")
-        filter_response = filter_attributes_table.get_item(
-            Key={'page': page, 'filter_level': filter_level}
-        )
-        if page == "event_sessions":
-            generation = request.args.get('generation')
-            if generation is not None and generation.isdigit():
-                generation = str(float(generation))
-            common_attributes = filter_response['Item']['common_attributes']
-            gen_attributes = filter_response['Item'][
-                f'gen_attributes_{generation}'
-            ]
-            response = {
-                **common_attributes,  # type: ignore
-                **gen_attributes,  # type: ignore
+{
+        "_index": "dev-drive-data",
+        "_id": "01-20220301_012315",
+        "_score": 1,
+        "_source": {
+          "country": "US",
+          "updated_at": "2024-07-02T05:29:01.812150",
+          "display_id": "fad2e800-eabc-4b73-9d11-138ab67d5a8e",
+          "rec_year_month": "202203",
+          "created_at": "2024-07-02T04:57:19.080976+00:00",
+          "current_status": "Failed",
+          "pipeline_status": {
+            "merge_avi": {
+              "error_log_name": [],
+              "updated_at": "2024-07-02T04:59:02.509076",
+              "status": "Completed"
+            },
+            "merge_parquet": {
+              "error_log_name": [],
+              "updated_at": "2024-07-02T04:57:19.080916+00:00",
+              "status": "Pending"
+            },
+            "upload": {
+              "error_log_name": [],
+              "updated_at": "2024-07-02T04:57:24.113244+00:00",
+              "status": "Completed"
+            },
+            "rosbag": {
+              "error_log_name": [],
+              "updated_at": "2024-07-02T04:57:19.080921+00:00",
+              "status": "Pending"
+            },
+            "conversion": {
+              "error_log_name": "Cannot generate error logs.",
+              "updated_at": "2024-07-02T05:29:01.811687",
+              "status": "Failed"
+            },
+            "statistics": {
+              "error_log_name": [],
+              "updated_at": "2024-07-02T04:57:19.080926+00:00",
+              "status": "Pending"
             }
-            final_response = append_vehicle_ids(
-                response, drive_session_index_name
-            )
-        else:
-            response = filter_response['Item']['attributes']  # type: ignore
-            final_response = append_vehicle_ids(
-                response, drive_session_index_name
-            )
-        logging.info(
-            f"dynamoDB response for fetching filter "
-            f"attributes: {final_response}"
-        )
-        return (
-            jsonify(final_response),  # type: ignore
-            200,
-        )
-    except KeyError as e:
-        logging.error("KeyError occurred: %s", str(e))
-        return (
-            jsonify({'message': "No generation category information found"}),
-            404,
-        )
-    except Exception as e:
-        logging.exception(f"An error occurred: {str(e)}")
-        return jsonify({"message": str(e)}), 500
-
-I am getting static code analysis error, see below 
-
-Incompatible types in assignment (expression has type "Union[bytes, bytearray, str, int, Decimal, <7 more items>, None]", variable has type "str")  [assignment]
-
-Please fix this issue? 
+          },
+          "folder_name": "20220301_012315",
+          "rec_year_month_date": "20220301",
+          "vehicle_id": "01"
+        }
+}
