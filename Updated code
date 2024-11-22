@@ -62,36 +62,143 @@ def get_filter_attributes_v2() -> ResponseReturnValue:
         logging.exception(f"An error occurred: {str(e)}")
         return jsonify({"message": str(e)}), 500
 
-SAMPLE_FILTER_DATA = {
-    "page": {
-        "S": "drive_sessions"
-    },
-    "filter_level": {
-        "S": "L1"
-    },
-    "attributes": {
+SAMPLE_FILTER_DRIVE_DATA = {
+  "page": {
+    "S": "drive_sessions"
+  },
+  "filter_level": {
+    "S": "L2"
+  },
+  "attributes": {
+    "M": {
+      "folder_name": {
         "M": {
-            "Filter": {
-                "L": [
-                    {
-                        "S": "rec_year_month"
-                    },
-                    {
-                        "S": "rec_year_month_date"
-                    },
-                    {
-                        "S": "folder_name"
-                    },
-                    {
-                        "S": "vehicle_id"
-                    },
-                    {
-                        "S": "time_range"
-                    }
-                ]
+          "component": {
+            "S": "Text"
+          },
+          "props": {
+            "M": {
+              "label": {
+                "S": "folder_name"
+              },
+              "variant": {
+                "S": "outlined"
+              }
             }
+          },
+          "type": {
+            "S": "text"
+          }
         }
+      },
+      "rec_year_month": {
+        "M": {
+          "component": {
+            "S": "DatePicker"
+          },
+          "props": {
+            "M": {
+              "format": {
+                "S": "YYYY/MM"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month_date": {
+        "M": {
+          "component": {
+            "S": "DatePicker"
+          },
+          "props": {
+            "M": {
+              "format": {
+                "S": "YYYY/MM/DD"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month_date_range": {
+        "M": {
+          "component": {
+            "S": "DateTimeRangeFilter"
+          },
+          "db_fields": {
+            "L": [
+              {
+                "S": "rec_year_month_date"
+              }
+            ]
+          },
+          "type": {
+            "S": "range"
+          }
+        }
+      },
+      "tags": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "multiple": {
+            "S": "true"
+          },
+          "props": {
+            "M": {
+              "label": {
+                "S": "tags"
+              },
+              "variant": {
+                "S": "outlined"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "vehicle_id": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "props": {
+            "M": {
+              "dropdown_name": {
+                "S": "vehicle_id"
+              },
+              "dropdown_values": {
+                "L": []
+              },
+              "label": {
+                "S": "vehicle_id"
+              },
+              "values": {
+                "L": []
+              },
+              "variant": {
+                "S": "outlined"
+              },
+              "visibility": {
+                "BOOL": "true"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      }
     }
+  }
 }
 
 @mock_aws
@@ -141,11 +248,13 @@ def test_get_filter_attributes_v2_other_session(ssm_client, cognito_client,
             assert data == expected_response
 
 
-____________________________ test_get_filter_attributes_v2_other_session _____________________________
 
-ssm_client = <botocore.client.SSM object at 0x7f990fbe7490>
-cognito_client = (<botocore.client.CognitoIdentityProvider object at 0x7f990c6b4fa0>, 'ap-northeast-1_2bac872893eb4d36817f7b5d01482ae7')
-cloudwatch_log_client = <botocore.client.CloudWatchLogs object at 0x7f9907824d60>
+
+___________________________________ test_get_filter_attributes_v2_other_session ___________________________________
+
+ssm_client = <botocore.client.SSM object at 0x7f2c3cdd7400>
+cognito_client = (<botocore.client.CognitoIdentityProvider object at 0x7f2c3b1a26d0>, 'ap-northeast-1_4efd287492924861b2a5ea01ac2e9f55')
+cloudwatch_log_client = <botocore.client.CloudWatchLogs object at 0x7f2c3fb3b2b0>
 dynamodb_resource = dynamodb.ServiceResource()
 
     @mock_aws
@@ -171,7 +280,7 @@ dynamodb_resource = dynamodb.ServiceResource()
             mock_filter_table.return_value = {
                     "Item": {
                         key: deserializer.deserialize(value) for key, value in
-                        SAMPLE_FILTER_DATA.items()
+                        SAMPLE_FILTER_DRIVE_DATA.items()
                     }
                 }
     
@@ -182,7 +291,7 @@ dynamodb_resource = dynamodb.ServiceResource()
             with app.test_client() as client:
                 response = client.get('/fetch-filter-attributes-v2',
                                       query_string={'page': "drive_sessions",
-                                                    'filter_level': "L1",
+                                                    'filter_level': "L2",
                                                     'project_name': "us-project-01"
                                                     })
                 expected_response = {
@@ -195,16 +304,16 @@ dynamodb_resource = dynamodb.ServiceResource()
 E               assert 500 == 200
 E                +  where 500 = <WrapperTestResponse 64 bytes [500 INTERNAL SERVER ERROR]>.status_code
 
-tests/test_main.py:1509: AssertionError
---------------------------------------- Captured stderr setup ----------------------------------------
-[INFO] - 2024-11-22 11:25:26,588 - botocore.credentials - Found credentials in environment variables.
------------------------------------------ Captured log setup -----------------------------------------
+tests/test_main.py:1510: AssertionError
+---------------------------------------------- Captured stderr setup ----------------------------------------------
+[INFO] - 2024-11-22 14:40:21,489 - botocore.credentials - Found credentials in environment variables.
+----------------------------------------------- Captured log setup ------------------------------------------------
 INFO     botocore.credentials:credentials.py:1147 Found credentials in environment variables.
----------------------------------------- Captured stdout call ----------------------------------------
+---------------------------------------------- Captured stdout call -----------------------------------------------
 data: {'message': 'Object of type MagicMock is not JSON serializable'}
----------------------------------------- Captured stderr call ----------------------------------------
-[INFO] - 2024-11-22 11:25:27,877 - root - dynamoDB response for fetching filter attributes: <MagicMock name='filter_attributes_table.get_item().__getitem__().__getitem__()' id='140295309982544'>
-[ERROR] - 2024-11-22 11:25:27,877 - root - An error occurred: Object of type MagicMock is not JSON serializable
+---------------------------------------------- Captured stderr call -----------------------------------------------
+[INFO] - 2024-11-22 14:40:22,735 - root - dynamoDB response for fetching filter attributes: <MagicMock name='filter_attributes_table.get_item().__getitem__().__getitem__()' id='139827946973984'>
+[ERROR] - 2024-11-22 14:40:22,735 - root - An error occurred: Object of type MagicMock is not JSON serializable
 Traceback (most recent call last):
   File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/main.py", line 708, in get_filter_attributes_v2
     jsonify(final_response),  # type: ignore
@@ -223,62 +332,47 @@ Traceback (most recent call last):
   File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/flask/json/provider.py", line 121, in _default
     raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 TypeError: Object of type MagicMock is not JSON serializable
+[INFO] - 2024-11-22 14:40:22,737 - API-Log - {'user_id': None, 'remote_ip': '127.0.0.1', 'source_path': '/fetch-filter-attributes-v2', 'request_method': 'GET', 'request_headers': {'User-Agent': 'Werkzeug/3.0.3', 'Host': 'localhost'}, 'request_endpoint': 'get_filter_attributes_v2', 'response_headers': {'Content-Type': 'application/json', 'Content-Length': '64'}, 'response_status': 500, 'duration': 6.571, 'invoked_time': datetime.datetime(2024, 11, 22, 14, 40, 22, 730392)}
+[INFO] - 2024-11-22 14:40:22,737 - root - API Log: {'user_id': None, 'remote_ip': '127.0.0.1', 'source_path': '/fetch-filter-attributes-v2', 'request_method': 'GET', 'request_headers': {'User-Agent': 'Werkzeug/3.0.3', 'Host': 'localhost'}, 'request_endpoint': 'get_filter_attributes_v2', 'response_headers': {'Content-Type': 'application/json', 'Content-Length': '64'}, 'response_status': 500, 'duration': 6.571, 'invoked_time': datetime.datetime(2024, 11, 22, 14, 40, 22, 730392)}
+------------------------------------------------ Captured log call ------------------------------------------------
+INFO     root:main.py:703 dynamoDB response for fetching filter attributes: <MagicMock name='filter_attributes_table.get_item().__getitem__().__getitem__()' id='139827946973984'>
+ERROR    root:main.py:718 An error occurred: Object of type MagicMock is not JSON serializable
+Traceback (most recent call last):
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/main.py", line 708, in get_filter_attributes_v2
+    jsonify(final_response),  # type: ignore
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/flask/json/__init__.py", line 170, in jsonify
+    return current_app.json.response(*args, **kwargs)  # type: ignore[return-value]
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/flask/json/provider.py", line 214, in response
+    f"{self.dumps(obj, **dump_args)}\n", mimetype=self.mimetype
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/flask/json/provider.py", line 179, in dumps
+    return json.dumps(obj, **kwargs)
+  File "/usr/lib/python3.9/json/__init__.py", line 234, in dumps
+    return cls(
+  File "/usr/lib/python3.9/json/encoder.py", line 199, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+  File "/usr/lib/python3.9/json/encoder.py", line 257, in iterencode
+    return _iterencode(o, 0)
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/flask/json/provider.py", line 121, in _default
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+TypeError: Object of type MagicMock is not JSON serializable
+INFO     API-Log:main.py:197 {'user_id': None, 'remote_ip': '127.0.0.1', 'source_path': '/fetch-filter-attributes-v2', 'request_method': 'GET', 'request_headers': {'User-Agent': 'Werkzeug/3.0.3', 'Host': 'localhost'}, 'request_endpoint': 'get_filter_attributes_v2', 'response_headers': {'Content-Type': 'application/json', 'Content-Length': '64'}, 'response_status': 500, 'duration': 6.571, 'invoked_time': datetime.datetime(2024, 11, 22, 14, 40, 22, 730392)}
+INFO     root:main.py:198 API Log: {'user_id': None, 'remote_ip': '127.0.0.1', 'source_path': '/fetch-filter-attributes-v2', 'request_method': 'GET', 'request_headers': {'User-Agent': 'Werkzeug/3.0.3', 'Host': 'localhost'}, 'request_endpoint': 'get_filter_attributes_v2', 'response_headers': {'Content-Type': 'application/json', 'Content-Length': '64'}, 'response_status': 500, 'duration': 6.571, 'invoked_time': datetime.datetime(2024, 11, 22, 14, 40, 22, 730392)}
+================================================ warnings summary =================================================
+../../../env/lib/python3.9/site-packages/opensearchpy/connection/http_urllib3.py:214
+  /home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/opensearchpy/connection/http_urllib3.py:214: UserWarning: Connecting to https://localhost:9200 using SSL with verify_certs=False is insecure.
+    warnings.warn(
 
-I have given the api and sample data for this test case reference but i am getting above issue 
-so please resolve it? 
+../../../env/lib/python3.9/site-packages/urllib3/connectionpool.py:1064
+dashboard/backend/tests/test_main.py::test_get_filter_attributes_v2
+dashboard/backend/tests/test_main.py::test_get_filter_attributes_v2_is_digit
+dashboard/backend/tests/test_main.py::test_get_filter_attributes_v2_other_session
+dashboard/backend/tests/test_main.py::test_list_events_v2
+dashboard/backend/tests/test_main.py::test_list_events_v2_with_filters
+  /home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/urllib3/connectionpool.py:1064: InsecureRequestWarning: Unverified HTTPS request is being made to host 'localhost'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/1.26.x/advanced-usage.html#ssl-warnings
+    warnings.warn(
 
---------------------------------------------------------------------------------------------------------------------------------
-
-@mock_aws
-def test_get_filter_attributes_v2_exception(ssm_client, cognito_client,
-                            cloudwatch_log_client, dynamodb_resource, mock_ddb):
-    """Test fetching filter attributes version 2  when an exception occurs."""
-
-    client, user_pool_id = cognito_client
-    put_parameter_store_config(ssm_client, ENV, user_pool_id)
-    create_users_table(dynamodb_resource)
-    user_table = dynamodb_resource.Table(USER_TABLE_NAME)
-    insert_items_into_users_table(user_table)
-    create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
-
-    with patch("main.filter_attributes_table") as mock_filter_table, \
-        patch("main.lookup_table") as mock_lookup_table, \
-        patch("utility.get_db_client") as mock_db_client:
-
-        mock_lookup_table.scan.return_value = {
-            "Items": [{"drive_session_table_name": "us-project-01"}]
-        }        
-        mock_db_client.return_value = OS_DB_CLIENT
-        mock_filter_table.get_item.return_value = {
-            "Item": {
-                key: deserializer.deserialize(value) for key, value in 
-                SAMPLE_FILTER_DATA_V2.items()
-            }
-        }
-
-        from main import app
-        app.config['TESTING'] = True
-        with app.test_client() as client:
-            mock_ddb.get_item.side_effect = Exception("DynamoDB error")
-            response = client.get('/fetch-filter-attributes-v2',
-                                  query_string={
-                                      'page': "event_sessions",
-                                      'filter_level': "L3",
-                                      'generation': "1.0",  
-                                      'project_name': "us-project-01"
-                                  })
-            
-            json_data = response.get_json()
-            assert response.status_code == 500
-            assert json_data['message'] == "DynamoDB error"
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================================= short test summary info =============================================
+FAILED tests/test_main.py::test_get_filter_attributes_v2_other_session - assert 500 == 200
 
 
-for the above test case i am getting below error 
-
- ERROR at setup of test_get_filter_attributes_v2_exception ______________________
-file /home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/tests/test_main.py, line 1586
-  @mock_aws
-  def test_get_filter_attributes_v2_exception(ssm_client, cognito_client,
-E       fixture 'mock_ddb' not found
->       available fixtures: aws_credentials, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, cloudwatch_handler, cloudwatch_log_client, cognito_client, doctest_namespace, dynamodb_resource, monkeypatch, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, s3_client, ssm_client, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory
->       use 'pytest --fixtures [testpath]' for help on them.
