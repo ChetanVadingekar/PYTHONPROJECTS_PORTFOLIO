@@ -1,32 +1,38 @@
-i have updated a test case see below,
-
 @mock_aws
-def test_get_filter_attributes_v2(ssm_client, cognito_client, cloudwatch_log_client, 
-                                dynamodb_resource):
-    """Test fetching filter attributes version 2."""
+@pytest.mark.usefixtures("dynamodb_resource")
+@patch("main.filter_attributes_table")
+@patch("main.lookup_table")
+def test_get_filter_attributes_v2_is_digit(mock_filter_table, mock_lookup_table, 
+                                           cloudwatch_log_client, ssm_client, 
+                                           dynamodb_resource):
+    """Test fetching filter attributes to check whether generation is digit."""
+    print("test-1244", ENV)
 
-    client, user_pool_id = cognito_client
-    put_parameter_store_config(ssm_client, ENV, user_pool_id)
+    put_parameter_store_config(ssm_client, ENV)
     create_users_table(dynamodb_resource)
     user_table = dynamodb_resource.Table(USER_TABLE_NAME)
     insert_items_into_users_table(user_table)
-    create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
-   
-    with patch("main.filter_attributes_table") as mock_filter_table, \
-        patch("main.lookup_table") as mock_lookup_table, \
-        patch("utility.get_db_client") as mock_db_client:
 
+    create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+
+    with patch('utility.get_db_client') as mock_db_client:
+        # Mocking database client
+        mock_db_client.return_value = OS_DB_CLIENT
+
+        # Mocking lookup table scan response
         mock_lookup_table.scan.return_value = {
             "Items": [{"drive_session_table_name": "us-project-01"}]
         }
 
+        # Mocking filter attributes table get_item response
         mock_filter_table.get_item.return_value = {
             "Item": {
-                key: deserializer.deserialize(value) for key, value in SAMPLE_FILTER_DATA_V2.items()
+                key: deserializer.deserialize(value) for key, value in 
+                SAMPLE_FILTER_DATA_V2.items()
             }
         }
 
-        mock_db_client.return_value = OS_DB_CLIENT
+        # Importing and testing the app
         from main import app
         app.config['TESTING'] = True
         with app.test_client() as client:
@@ -34,158 +40,73 @@ def test_get_filter_attributes_v2(ssm_client, cognito_client, cloudwatch_log_cli
                                   query_string={
                                       'page': "event_sessions",
                                       'filter_level': "L3",
-                                      'generation': "1.0",
+                                      'generation': "1",  # Ensuring generation is a digit
                                       'project_name': "us-project-01"
                                   })
 
+            # Updated expected response to include 'vehicle_id'
             expected_response = {
                 'date_time_range': {
-                    'component': 'DateTimeRange', 
-                    'db_fields': ['start_time', 'stop_time'], 
+                    'component': 'DateTimeRange',
+                    'db_fields': ['start_time', 'stop_time'],
                     'type': 'range'
-                    }, 
+                },
                 'event_name': {
-                    'component': 'Text', 
+                    'component': 'Text',
                     'props': {
-                        'label': 'event_name', 
+                        'label': 'event_name',
                         'variant': 'outlined'
-                        }, 
-                        'type': 'text'
-                    }, 
+                    },
+                    'type': 'text'
+                },
                 'vehicle_id': {
-                    'component': 'Selection', 
+                    'component': 'Selection',
                     'props': {
-                        'dropdown_name': 'vehicle_id', 
-                        'dropdown_values': [], 
-                        'label': 'vehicle_id', 
-                        'values': [], 
-                        'variant': 'outlined', 
-                        'visibility': 'true'
-                        }, 
-                    'type': 'text'
-                    }, 
-                'day_time': {
-                    'component': 'Selection', 
-                    'props': {
-                        'dropdown_name': 'Day Time', 
-                        'dropdown_values': ['day', 'dawn', 'dusk', 'night'], 
-                        'values': [], 
-                        'visibility': 'true', 
-                        'chart_type': 'pie', 
-                        'color_mapping': {
-                            'day': '#add8e6', 
-                            'dawn': '#f03775', 
-                            'dusk': '#191970', 
-                            'night': '#391a59'}
-                            }, 
-                    'type': 'text'
-                    }, 
-                'object_classification': {
-                    'component': 'Selection', 
-                    'props': {
-                        'dropdown_name': 'Object Classification', 
-                        'dropdown_values': ['pedestrian', 'bicycle', 'animal', 'small car', 'passenger car', 'motorbike', 'long vehicles (>8m)', 'special vehicle'], 
+                        'dropdown_name': 'vehicle_id',
+                        'dropdown_values': [],  # Vehicle IDs are empty for this case
+                        'label': 'vehicle_id',
                         'values': [],
-                        'visibility': 'true', 
-                        'chart_type': 'bar', 
-                        'color_mapping': {'default': '#6b8e23'}
-                        }, 
+                        'variant': 'outlined',
+                        'visibility': 'true'
+                    },
                     'type': 'text'
-                    }
+                },
+                'day_time': {
+                    'component': 'Selection',
+                    'props': {
+                        'dropdown_name': 'Day Time',
+                        'dropdown_values': ['day', 'dawn', 'dusk', 'night'],
+                        'values': [],
+                        'visibility': 'true',
+                        'chart_type': 'pie',
+                        'color_mapping': {
+                            'day': '#add8e6',
+                            'dawn': '#f03775',
+                            'dusk': '#191970',
+                            'night': '#391a59'
+                        }
+                    },
+                    'type': 'text'
+                },
+                'object_classification': {
+                    'component': 'Selection',
+                    'props': {
+                        'dropdown_name': 'Object Classification',
+                        'dropdown_values': [
+                            'pedestrian', 'bicycle', 'animal', 'small car', 
+                            'passenger car', 'motorbike', 'long vehicles (>8m)', 
+                            'special vehicle'
+                        ],
+                        'values': [],
+                        'visibility': 'true',
+                        'chart_type': 'bar',
+                        'color_mapping': {'default': '#6b8e23'}
+                    },
+                    'type': 'text'
                 }
+            }
 
+            # Assertions
             data = response.json
             assert response.status_code == 200
             assert data == expected_response
-
-According to the above test case, we have to update the below test case
-
-@mock_aws
-@pytest.mark.usefixtures("dynamodb_resource")
-@patch("main.filter_attributes_table")
-def test_get_filter_attributes_v2_is_digit(mock_ddb, cloudwatch_log_client,
-                                           ssm_client, dynamodb_resource):
-    """Test fetching filter attributes check weather generation is digit."""
-    print("test-1244", ENV)
-    put_parameter_store_config(ssm_client, ENV)
-
-    create_users_table(dynamodb_resource)
-    user_table = dynamodb_resource.Table(USER_TABLE_NAME)
-    insert_items_into_users_table(user_table)
-
-    create_cloudwatch_log_group(
-        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
-
-    with patch('utility.get_db_client') as mock_db_client:
-        mock_db_client.return_value = OS_DB_CLIENT
-        from main import app
-        app.config['TESTING'] = True
-        with app.test_client() as client:
-            client.set_cookie("user_id", "100")
-            mock_get_item = Mock()
-            mock_get_item.return_value = {
-                "Item": {
-                    key: deserializer.deserialize(value) for key, value in
-                    SAMPLE_FILTER_DATA_V2.items()
-                }
-            }
-            mock_ddb.get_item = mock_get_item
-            response = client.get('/fetch-filter-attributes-v2',
-                                  query_string={'page': "event_sessions",
-                                                'filter_level': "L3",
-                                                'generation': "1"})
-
-            expected_response = {
-                'date_time_range':
-                    {
-                        'component': 'DateTimeRange',
-                        'db_fields': ['start_time', 'stop_time'],
-                        'type': 'range'
-                    },
-                'event_name':
-                    {
-                        'component': 'Text',
-                        'props': {'label': 'event_name',
-                                  'variant': 'outlined'}, 'type': 'text'
-                    },
-                'day_time':
-                    {
-                        'component': 'Selection',
-                        'props': {
-                            'dropdown_name': 'Day Time',
-                            'dropdown_values': ['day', 'dawn', 'dusk',
-                                                'night'],
-                            'values': [],
-                            'visibility': 'true',
-                            'chart_type': 'pie',
-                            'color_mapping': {'day': '#add8e6',
-                                              'dawn': '#f03775',
-                                              'dusk': '#191970',
-                                              'night': '#391a59'}
-                        },
-                        'type': 'text'
-                    },
-                'object_classification':
-                    {
-                        'component': 'Selection',
-                        'props': {
-                            'dropdown_name': 'Object Classification',
-                            'dropdown_values': ['pedestrian', 'bicycle',
-                                                'animal', 'small car',
-                                                'passenger car', 'motorbike',
-                                                'long vehicles (>8m)',
-                                                'special vehicle'],
-                            'values': [],
-                            'visibility': 'true',
-                            'chart_type': 'bar',
-                            'color_mapping': {'default': '#6b8e23'}
-                        },
-                        'type': 'text'
-                    }
-            }
-
-            data = response.json
-            assert response.status_code == 200
-            assert data == expected_response
-
-
