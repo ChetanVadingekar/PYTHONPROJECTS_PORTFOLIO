@@ -226,3 +226,59 @@ TypeError: Object of type MagicMock is not JSON serializable
 
 I have given the api and sample data for this test case reference but i am getting above issue 
 so please resolve it? 
+
+--------------------------------------------------------------------------------------------------------------------------------
+
+@mock_aws
+def test_get_filter_attributes_v2_exception(ssm_client, cognito_client,
+                            cloudwatch_log_client, dynamodb_resource, mock_ddb):
+    """Test fetching filter attributes version 2  when an exception occurs."""
+
+    client, user_pool_id = cognito_client
+    put_parameter_store_config(ssm_client, ENV, user_pool_id)
+    create_users_table(dynamodb_resource)
+    user_table = dynamodb_resource.Table(USER_TABLE_NAME)
+    insert_items_into_users_table(user_table)
+    create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+
+    with patch("main.filter_attributes_table") as mock_filter_table, \
+        patch("main.lookup_table") as mock_lookup_table, \
+        patch("utility.get_db_client") as mock_db_client:
+
+        mock_lookup_table.scan.return_value = {
+            "Items": [{"drive_session_table_name": "us-project-01"}]
+        }        
+        mock_db_client.return_value = OS_DB_CLIENT
+        mock_filter_table.get_item.return_value = {
+            "Item": {
+                key: deserializer.deserialize(value) for key, value in 
+                SAMPLE_FILTER_DATA_V2.items()
+            }
+        }
+
+        from main import app
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            mock_ddb.get_item.side_effect = Exception("DynamoDB error")
+            response = client.get('/fetch-filter-attributes-v2',
+                                  query_string={
+                                      'page': "event_sessions",
+                                      'filter_level': "L3",
+                                      'generation': "1.0",  
+                                      'project_name': "us-project-01"
+                                  })
+            
+            json_data = response.get_json()
+            assert response.status_code == 500
+            assert json_data['message'] == "DynamoDB error"
+
+
+for the above test case i am getting below error 
+
+ ERROR at setup of test_get_filter_attributes_v2_exception ______________________
+file /home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/tests/test_main.py, line 1586
+  @mock_aws
+  def test_get_filter_attributes_v2_exception(ssm_client, cognito_client,
+E       fixture 'mock_ddb' not found
+>       available fixtures: aws_credentials, cache, capfd, capfdbinary, caplog, capsys, capsysbinary, cloudwatch_handler, cloudwatch_log_client, cognito_client, doctest_namespace, dynamodb_resource, monkeypatch, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, s3_client, ssm_client, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory
+>       use 'pytest --fixtures [testpath]' for help on them.
