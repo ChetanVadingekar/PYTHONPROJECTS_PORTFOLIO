@@ -1,8 +1,8 @@
-log_content = "\n".join(
-                f"{datetime.fromtimestamp(event['timestamp']/1000).isoformat()}:"
-                f"{event['message']}"
-                for event in logs
-            )
+Technically good in AWS and python.
+Able to complete tasks on time.
 
-we are doing static code analysis and i am getting one error as the second line is exceeding to 79 
-how to resolve it ?
+- Chetan Need to go office as per HR mandate. Currently he is not going office.
+-Should follow all Scrum and JIRA process. Ensure all story and story points are added on sprint planning day
+
+review comment given by manager.
+I have to reply in such smart and polite way?
