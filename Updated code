@@ -1,68 +1,28 @@
-def format_project_details(projects: list) -> list:
-    """
-    Rearrange the projects based on region.
+Here’s how you can structure the JIRA ticket with Acceptance Criteria (AC), Definition of Ready (DoR), and Definition of Done (DoD) for the bug:
 
-    Args:
-        projects (list): Lookup table project items
+Acceptance Criteria (AC):
 
-    Returns:
-        list: Formatted project details
-    """
-    from opensearch_utility import DriveSessionUtility  # type: ignore
+	1.	The get-project-details API should handle incorrect or malformed data in the drive session table without crashing.
+	2.	The API should return a meaningful error response with appropriate status codes (e.g., 400 or 422 for client-side errors, 500 with an explanatory message for server-side issues).
+	3.	Logs should clearly indicate the cause of the issue for debugging purposes.
+	4.	The fix should not affect the existing functionality of the API.
+	5.	Proper unit and integration tests should be in place to ensure the bug is resolved.
 
-    data: dict = {}
-    for project in projects:
-        name = project.get("project_name")
-        country_code = project.get("country_code", "JP").upper()
+Definition of Ready (DoR):
 
-        # if country_code is an empty string
-        if not country_code:
-            country_code = "JP"
+	1.	The bug has been acknowledged and prioritized in the sprint backlog.
+	2.	All necessary details about the incorrect data scenario in the drive session table are documented and accessible.
+	3.	Team members have access to the logs, the database schema, and any related resources for debugging.
+	4.	The development environment is set up for reproducing and debugging the issue.
+	5.	Dependencies (if any) are identified and addressed.
 
-        generation_name = project.get("generation_name", "Gen1").capitalize()
-        model_name = project.get("model_name", "PADAS").upper()
-        drive_session_index_name = project.get(
-            "drive_session_table_name", "adcp-gen3-fot-drive-data"
-        )
-        if not drive_session_index_name:
-            rec_year_month_date = "Unavailable"
-        else:
-            version = f"Gen{generation_name} {model_name}"
-            search_obj = DriveSessionUtility(drive_session_index_name)
-            rec_year_month_date = search_obj.get_rec_year_month_date()
+Definition of Done (DoD):
 
-            if rec_year_month_date != "Unavailable":
-                rec_year_month_date = datetime.strptime(
-                    rec_year_month_date, "%Y%m%d"
-                ).strftime("%Y-%m-%d")
+	1.	The get-project-details API gracefully handles incorrect data and provides a proper error response.
+	2.	Code changes are peer-reviewed and merged into the main branch without conflicts.
+	3.	Unit tests and integration tests are added or updated and pass successfully.
+	4.	The bug is verified and closed after QA validation.
+	5.	Deployment to staging and production environments is completed, and post-deployment tests confirm no regression.
+	6.	Documentation is updated (e.g., API error handling guide).
 
-        project_info = {
-            "project_name": name,
-            "version": version,
-            "rec_year_month_date": rec_year_month_date,
-        }
-
-        if country_code in data:
-            data[country_code]["projects"].append(project_info)
-        else:
-            data[country_code] = {"projects": [project_info]}
-
-    formatted_data = []
-    for country in data:
-        country_details = get_country_details(country_code=country)
-
-        # Default setting the country_details to Japan
-        country_name = country_details.get("country_name", "Japan")
-        center_point = country_details.get(
-            "center_point", ["36.204824", "138.252924"]
-        )
-        data_dict = {
-            "country": country_name,
-            "latlng": center_point,
-            "projects": data[country]["projects"],
-        }
-        formatted_data.append(data_dict)
-
-    return formatted_data
-
-here we have complete function as per that we have to handle 
+You can modify this further based on your specific project or team standards.
