@@ -1,8 +1,68 @@
+def format_project_details(projects: list) -> list:
+    """
+    Rearrange the projects based on region.
+
+    Args:
+        projects (list): Lookup table project items
+
+    Returns:
+        list: Formatted project details
+    """
+    from opensearch_utility import DriveSessionUtility  # type: ignore
+
+    data: dict = {}
+    for project in projects:
+        name = project.get("project_name")
+        country_code = project.get("country_code", "JP").upper()
+
+        # if country_code is an empty string
+        if not country_code:
+            country_code = "JP"
+
+        generation_name = project.get("generation_name", "Gen1").capitalize()
+        model_name = project.get("model_name", "PADAS").upper()
+        drive_session_index_name = project.get(
+            "drive_session_table_name", "adcp-gen3-fot-drive-data"
+        )
+        if not drive_session_index_name:
+            rec_year_month_date = "Unavailable"
+        else:
+            version = f"Gen{generation_name} {model_name}"
+            search_obj = DriveSessionUtility(drive_session_index_name)
+            rec_year_month_date = search_obj.get_rec_year_month_date()
+
             if rec_year_month_date != "Unavailable":
                 rec_year_month_date = datetime.strptime(
                     rec_year_month_date, "%Y%m%d"
                 ).strftime("%Y-%m-%d")
 
-we are handling the query response like this
+        project_info = {
+            "project_name": name,
+            "version": version,
+            "rec_year_month_date": rec_year_month_date,
+        }
 
-now if the query would return text "hstek sjwlk" how we can handle here
+        if country_code in data:
+            data[country_code]["projects"].append(project_info)
+        else:
+            data[country_code] = {"projects": [project_info]}
+
+    formatted_data = []
+    for country in data:
+        country_details = get_country_details(country_code=country)
+
+        # Default setting the country_details to Japan
+        country_name = country_details.get("country_name", "Japan")
+        center_point = country_details.get(
+            "center_point", ["36.204824", "138.252924"]
+        )
+        data_dict = {
+            "country": country_name,
+            "latlng": center_point,
+            "projects": data[country]["projects"],
+        }
+        formatted_data.append(data_dict)
+
+    return formatted_data
+
+here we have complete function as per that we have to handle 
