@@ -1,36 +1,56 @@
-Here’s the updated email with your requested specifications included:
+We have a query to get the last updated date 
 
-Subject: Request for Laptop Replacement
 
-Dear [Manager’s Name],
+GET adcp-gen3-fot-drive-data/_search
+{
+  "size": 1,
+  "_source": "rec_year_month_date",
+  "sort": [
+    {
+      "rec_year_month_date": {
+        "order": "desc"
+      }
+    }
+  ], 
+  "query": {
+    "match_all": {}
+  }
+}
 
-I hope this message finds you well. I would like to bring to your attention some challenges I am facing with my current laptop, which are significantly impacting my productivity.
+Also we have one query to ref
 
-My project involves CPU-intensive tasks that require ample storage and memory, which my current laptop, with the following specifications, is unable to handle efficiently:
-	•	Processor: Intel Core i5
-	•	RAM: 8GB
-	•	SSD: 512GB
-	•	Operating System: Dual boot (Windows and Ubuntu) as per project requirements
+GET adcp-eb-test-drive-data/_search
+{
+  "size": 0,
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "current_status": {
+              "value": "Completed"
+            }
+          }
+        }
+      ]
+    }
+  }, 
+  "aggs": {
+    "unique_vehicle_ids": {
+      "composite": {
+        "sources": [
+          {
+            "vehicle_id": {
+              "terms": {
+                "field": "vehicle_id"
+              }
+            }
+          }
+        ],
+        "size": 10000
+      }
+    }
+  }
+}
 
-Due to these limitations, I am encountering the following issues:
-	1.	System Crashes During High Computational Tasks: The laptop frequently crashes while running CPU-intensive processes, making it difficult to accomplish my work effectively.
-	2.	Storage and Memory Constraints: The existing hardware configuration is insufficient for the project’s demands, leading to slowdowns and inefficiencies.
-	3.	Keyboard Malfunctions: When the system crashes, the keyboard sometimes stops working, and I have to restart the laptop to resolve the issue.
-	4.	Camera Malfunction: The built-in camera has accumulated dust and no longer functions properly, which is problematic during virtual meetings.
-	5.	Zscaler Issues: After the laptop enters sleep mode, Zscaler often fails to reconnect upon login. Restarting Zscaler or the system takes about 5 minutes, causing unnecessary delays.
-	6.	Other Small Issues: There are additional minor problems that collectively hinder my workflow.
-
-Given these challenges, I kindly request a replacement laptop with the following minimum specifications to meet the demands of my project:
-	•	Processor: Intel Core i7
-	•	RAM: 16GB
-	•	SSD: More than 512GB
-	•	Operating System: Dual boot (Windows and Ubuntu)
-
-A system with these specifications would enable me to work efficiently without interruptions and improve overall productivity.
-
-Please let me know if further details are required or if there is a specific process I need to follow for this request. I appreciate your understanding and support in this matter.
-
-Best regards,
-Chetan
-
-This version incorporates the requested specifications while maintaining professionalism and clarity. Let me know if further adjustments are needed!
+here in this query, we are checking whether the current status is completed or not like that we have to check in first query.
