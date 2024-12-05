@@ -1,56 +1,8 @@
-We have a query to get the last updated date 
+            if rec_year_month_date != "Unavailable":
+                rec_year_month_date = datetime.strptime(
+                    rec_year_month_date, "%Y%m%d"
+                ).strftime("%Y-%m-%d")
 
+we are handling the query response like this
 
-GET adcp-gen3-fot-drive-data/_search
-{
-  "size": 1,
-  "_source": "rec_year_month_date",
-  "sort": [
-    {
-      "rec_year_month_date": {
-        "order": "desc"
-      }
-    }
-  ], 
-  "query": {
-    "match_all": {}
-  }
-}
-
-Also we have one query to ref
-
-GET adcp-eb-test-drive-data/_search
-{
-  "size": 0,
-  "query": {
-    "bool": {
-      "must": [
-        {
-          "term": {
-            "current_status": {
-              "value": "Completed"
-            }
-          }
-        }
-      ]
-    }
-  }, 
-  "aggs": {
-    "unique_vehicle_ids": {
-      "composite": {
-        "sources": [
-          {
-            "vehicle_id": {
-              "terms": {
-                "field": "vehicle_id"
-              }
-            }
-          }
-        ],
-        "size": 10000
-      }
-    }
-  }
-}
-
-here in this query, we are checking whether the current status is completed or not like that we have to check in first query.
+now if the query would return text "hstek sjwlk" how we can handle here
