@@ -1,28 +1,140 @@
-Here’s how you can structure the JIRA ticket with Acceptance Criteria (AC), Definition of Ready (DoR), and Definition of Done (DoD) for the bug:
+I have one api 
 
-Acceptance Criteria (AC):
+@app.route('/fetch-project-names', methods=['GET'])
+@cognito_auth_required
+@authorization_required(perms={"list:projects"})
+def get_project_names() -> ResponseReturnValue:
+    """
+    Fetch project names from lookup table.
 
-	1.	The get-project-details API should handle incorrect or malformed data in the drive session table without crashing.
-	2.	The API should return a meaningful error response with appropriate status codes (e.g., 400 or 422 for client-side errors, 500 with an explanatory message for server-side issues).
-	3.	Logs should clearly indicate the cause of the issue for debugging purposes.
-	4.	The fix should not affect the existing functionality of the API.
-	5.	Proper unit and integration tests should be in place to ensure the bug is resolved.
+    Returns:
+        (ResponseReturnValue): A JSON response containing the project list.
+    """
+    try:
+        response = lookup_table.scan(
+            ProjectionExpression=(
+                'project_name,pid,local_file_path,generation_name'
+            )
+        )
+        data = response["Items"]
+        if data:
+            project_list = [
+                {
+                    'project_name': item['project_name'],
+                    'id': item['pid'],
+                    'local_file_path': item.get(
+                        'local_file_path', 'Unavailable'
+                    ),
+                    'generation': item['generation_name'],
+                }
+                for item in data
+            ]
+            return jsonify(project_list), 200
+        return (
+            jsonify(
+                {
+                    "message": "No projects found. Please create one "
+                    "using the CLI"
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
 
-Definition of Ready (DoR):
 
-	1.	The bug has been acknowledged and prioritized in the sprint backlog.
-	2.	All necessary details about the incorrect data scenario in the drive session table are documented and accessible.
-	3.	Team members have access to the logs, the database schema, and any related resources for debugging.
-	4.	The development environment is set up for reproducing and debugging the issue.
-	5.	Dependencies (if any) are identified and addressed.
+and we have added authentication and authorization for this api and we written test case for this see below
 
-Definition of Done (DoD):
+@mock_aws
+def test_fetch_project_names_empty(cloudwatch_log_client,
+                                   ssm_client, dynamodb_resource):
+    """Fetch project names empty"""
+    put_parameter_store_config(ssm_client, ENV)
 
-	1.	The get-project-details API gracefully handles incorrect data and provides a proper error response.
-	2.	Code changes are peer-reviewed and merged into the main branch without conflicts.
-	3.	Unit tests and integration tests are added or updated and pass successfully.
-	4.	The bug is verified and closed after QA validation.
-	5.	Deployment to staging and production environments is completed, and post-deployment tests confirm no regression.
-	6.	Documentation is updated (e.g., API error handling guide).
+    create_users_table(dynamodb_resource)
+    user_table = dynamodb_resource.Table(USER_TABLE_NAME)
+    insert_items_into_users_table(user_table)
 
-You can modify this further based on your specific project or team standards.
+    create_cloudwatch_log_group(
+        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+
+    with patch('utility.get_db_client') as mock_db_client:
+        mock_db_client.return_value = OS_DB_CLIENT
+        from main import app
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            client.set_cookie("user_id", "100")
+            create_lookup_table(dynamodb_resource)
+            lookup_resource = dynamodb_resource.Table(LOOKUP_TABLE_NAME)
+            response = client.get('/fetch-project-names')
+            assert response.status_code == 200
+            data = response.json
+            assert "No projects found" in data["message"]
+
+
+now we have one more api see below
+
+@app.route("/get-project-details", methods=["GET"])
+@cognito_auth_required
+@authorization_required(perms={"list:projectDetails"})
+def fetch_projects_info() -> ResponseReturnValue:
+    """
+    Get the projects information to render on home page.
+
+    Returns:
+        (ResponseReturnValue): list of events.
+    """
+    projection_attributes = [
+        "project_name",
+        "country_code",
+        "generation_name",
+        "model_name",
+        "drive_session_table_name",
+    ]
+    try:
+        response = lookup_table.scan(
+            ProjectionExpression=",".join(projection_attributes)
+        )
+
+        projects = response.get("Items", [])
+
+        while response.get("LastEvaluatedKey"):
+            response = lookup_table.scan(
+                ProjectionExpression=",".join(projection_attributes),
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            if response.get("Items"):
+                projects.extend(response.get("Items"))  # type: ignore
+
+        if not projects:
+            message = "No projects found in lookup table for home page listing"
+            logging.info(message)
+            return jsonify({"data": [], "message": message}), 200
+
+        response_data = format_project_details(projects)
+
+        return (
+            jsonify(
+                {
+                    "data": response_data,
+                    "message": "Fetched projects from lookup table",
+                }
+            ),
+            200,
+        )
+
+    except ClientError as err:
+        message = err.response['Error']['Message']
+        code = err.response['Error']['Code']
+
+        if code == "ResourceNotFoundException":
+            message = f"DynamoDB Table {LOOKUP_TABLE} not found"
+            logging.error(message)
+            status_code = 404
+        else:
+            logging.error(f"Unhandled Exception: {code}:{message}")
+            status_code = 500
+
+        return jsonify({"message": message, "error_code": code}), status_code
+
+so for this api we have to write test cases to cover all the api code
