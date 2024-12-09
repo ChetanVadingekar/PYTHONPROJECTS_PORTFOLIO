@@ -1,12 +1,59 @@
-if self.api_type == "LISTING":
+    def execute(self: OpenSearchQueryUtilityVar, **kwargs: dict) -> Response:
+        """
+        Evaluate the query and get results.
+
+        Args:
+            kwargs : keyword arguments
+                project_fields (list[str]): list of attributes to be returned
+                                            from the query results
+                filter_combo (list[dict[str, list[str]]): list of filters
+                                        Ex: [ {field_name : [field_value] } ]
+
+        Returns:
+            (Response): results of the query execution
+        """
+        project_fields = kwargs.get("project_fields")
+        response: Union[Response, dict]
+        if self.api_type == "LISTING":
             if client.indices.exists(index=self.index_name):
                 response = self.execute_group_query(project_fields)  # type: ignore
             else:
                 response = {}
 
+        else:
+            if self.api_type == "FILTER":
+                query = self.construct_filter_query()
 
-Static code analysis for above code getting error, see below
+                if self.display_ids:
+                    display_id_query = self.create_terms_query(
+                        "display_id", self.display_ids
+                    )
+                    query = Q("bool", must=query, filter=display_id_query)
+                self.search_obj = self.search_obj.query(query)  # type: ignore
+            elif self.api_type == "TAGS":
+                self.condition_groups = kwargs.get(
+                    "filter_combo"
+                )  # type: ignore
+                query = self.construct_filter_query()
+                self.search_obj = self.search_obj.query(query)  # type: ignore
 
-Incompatible types in assignment (expression has type "dict[Never, Never]", variable has type "Response")
+            if project_fields:
+                self.search_obj = self.search_obj.source(  # type: ignore
+                    project_fields
+                )
 
-response = self.execute_group_query(project_fields)  # type: ignore:  E501 line too long (83 > 79 characters)
+            if client.indices.exists(index=self.index_name):
+                response = (
+                    self.search_obj[self.offset : self.limit]
+                    .sort(self.formatted_sort_fields)
+                    .execute()
+                )  # type: ignore
+            else:
+                response = {}
+        return response
+
+I have the above function but while doing static code analysis getting my error see below
+
+ error: Incompatible return value type (got "Union[Response, dict[Any, Any]]", expected "Response")  [return-value]
+
+How to fix this error?
