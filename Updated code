@@ -1,59 +1,148 @@
-    def execute(self: OpenSearchQueryUtilityVar, **kwargs: dict) -> Response:
-        """
-        Evaluate the query and get results.
+@app.route('/users', methods=['GET'])
+@cognito_auth_required
+@authorization_required(perms={"list:users"})
+def list_user() -> ResponseReturnValue:
+    """
+    List users based on project selected from DynamoDB.
 
-        Args:
-            kwargs : keyword arguments
-                project_fields (list[str]): list of attributes to be returned
-                                            from the query results
-                filter_combo (list[dict[str, list[str]]): list of filters
-                                        Ex: [ {field_name : [field_value] } ]
+    Returns:
+        (ResponseReturnValue): JSON response with List of users and message.
 
-        Returns:
-            (Response): results of the query execution
-        """
-        project_fields = kwargs.get("project_fields")
-        response: Union[Response, dict]
-        if self.api_type == "LISTING":
-            if client.indices.exists(index=self.index_name):
-                response = self.execute_group_query(project_fields)  # type: ignore
-            else:
-                response = {}
+    Raises:
+        response: If an error occurs while processing the request.
+    """
+    project = request.args.get('projectselected')
+    if not project:
+        return (
+            jsonify({'message': 'Project not specified', 'users': []}),
+            400,
+        )
 
-        else:
-            if self.api_type == "FILTER":
-                query = self.construct_filter_query()
+    try:
+        page_no = int(request.args.get('page_no', 1))
+        page_size = int(request.args.get('page_size', 10))
+        user_id = request.args.get('userid')
+        start_index = (page_no - 1) * page_size
+        end_index = page_no * page_size
+        total_user_response = []
+        response = user_info_table_cognito.query(
+            IndexName="project_name-user_id-index",
+            KeyConditionExpression=boto3.dynamodb.conditions.Key(
+                'project_name'
+            ).eq(project),
+            FilterExpression="account_status = :val",
+            ExpressionAttributeValues={":val": True},
+        )
+        if isinstance(response, ClientError):
+            raise response
+        total_user_response.extend(response["Items"])
+        while 'LastEvaluatedKey' in response:
+            logging.info("Fetching the remaining results ...")
+            print("Fetching the remaining results ...")
+            response = user_info_table_cognito.query(
+                IndexName="project_name-user_id-index",
+                KeyConditionExpression=boto3.dynamodb.conditions.Key(
+                    'project_name'
+                ).eq(project),
+                FilterExpression="account_status = :val",
+                ExpressionAttributeValues={":val": True},
+                ExclusiveStartKey=response['LastEvaluatedKey'],
+            )
+            total_user_response.extend(response["Items"])
+        users_response = get_user_data(total_user_response, project)
+        users = users_response["users"]
+        if users_response["code"] == 400:
+            return (users_response["msg"], 400)
+        filtered_users = [user for user in users if user['uid'] != user_id]
+        paginated_users = filtered_users[start_index:end_index]
+        if paginated_users:
+            return (
+                jsonify(
+                    {
+                        'data': paginated_users,
+                        'message': '',
+                        'total': len(filtered_users),
+                    }
+                ),
+                200,
+            )
+        return (
+            jsonify(
+                {
+                    'message': f'No users found for project {project}',
+                    'data': [],
+                    'total': len(filtered_users),
+                }
+            ),
+            404,
+        )
+    except ClientError as e:
+        return (
+            jsonify({'message': f"Error: {e.response['Error']['Message']}"}),
+            500,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return (
+            jsonify(
+                {
+                    "message": "An error occurred while processing the "
+                    "request."
+                }
+            ),
+            500,
+        )
 
-                if self.display_ids:
-                    display_id_query = self.create_terms_query(
-                        "display_id", self.display_ids
-                    )
-                    query = Q("bool", must=query, filter=display_id_query)
-                self.search_obj = self.search_obj.query(query)  # type: ignore
-            elif self.api_type == "TAGS":
-                self.condition_groups = kwargs.get(
-                    "filter_combo"
-                )  # type: ignore
-                query = self.construct_filter_query()
-                self.search_obj = self.search_obj.query(query)  # type: ignore
+def get_user_data(response: list, project: str) -> dict:
+    """
+    Process a user and return user data if conditions are met.
 
-            if project_fields:
-                self.search_obj = self.search_obj.source(  # type: ignore
-                    project_fields
-                )
+    Parameters:
+        response (list): A dictionary containing user.
+        project (str): The project to check against the project list.
 
-            if client.indices.exists(index=self.index_name):
-                response = (
-                    self.search_obj[self.offset : self.limit]
-                    .sort(self.formatted_sort_fields)
-                    .execute()
-                )  # type: ignore
-            else:
-                response = {}
-        return response
+    Returns:
+        dict: A dictionary containing user information.
+    """
+    users = []
+    project_list = []
+    project_flag = "project_name"
+    for user in response:
+        attributes = {}
+        for attribute, value in user.items():
+            attributes[attribute] = value
+        if project_flag in attributes:
+            project_list = [
+                proj.strip("' ")
+                for proj in attributes[project_flag].split(',')
+            ]
+        role_info = get_role_type(attributes['role_code'])
+        if 'error' in role_info:
+            return {
+                "users": [],
+                "msg": jsonify({'message': role_info['error']}),
+                "code": 400,
+            }
+        role_name = role_info.get("role_name", "unknown")
+        role_type = role_info.get("role_type", "unknown")
+        users.append(
+            {
+                "uid": attributes.get('user_id', 'unknown'),
+                "name": attributes.get('name', 'unknown'),
+                "emp_id": attributes.get('emp_id', 'unknown'),
+                "email": attributes.get('email', 'unknown'),
+                "upn": attributes.get('upn', 'unknown'),
+                "projects": project_list,
+                "role_name": role_name,
+                "role_type": role_type,
+            }
+        )
+    return {
+        "users": users,
+        "msg": jsonify({'message': "Success"}),
+        "code": 200,
+    }
 
-I have the above function but while doing static code analysis getting my error see below
 
- error: Incompatible return value type (got "Union[Response, dict[Any, Any]]", expected "Response")  [return-value]
-
-How to fix this error?
+I want to Review the above code.
+Please review and give me suggestion what can be improved so that code can be resilient and moduler 
