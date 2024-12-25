@@ -1,85 +1,71 @@
-@app.route('/users', methods=['GET'])
-@cognito_auth_required
-@authorization_required(perms={"list:users"})
-def list_user() -> ResponseReturnValue:
+API Refactoring
+
+@app.route('/fetch-events-for-listing', methods=['POST', 'GET'])
+def get_events_from_dynamodb() -> ResponseReturnValue:
     """
-    List users based on project selected from DynamoDB.
+    Get event data based on split_status from the database.
 
     Returns:
-        (ResponseReturnValue): JSON response with List of users and message.
-
-    Raises:
-        response: If an error occurs while processing the request.
+        (ResponseReturnValue): list of events.
     """
-    project = request.args.get('projectselected')
-    if not project:
-        return (
-            jsonify({'message': 'Project not specified', 'users': []}),
-            400,
+    try:
+        input_json: Any = [{"split_status": ["SUCCESS"]}]
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        generation = request.args.get('generation')
+        api = "fetch-events-for-listing"
+        if request.method == "POST" and request.is_json:
+            # Generate filter expressions
+            input_json = json.loads(request.get_json())
+            input_json = update_query_with_default_data(
+                input_json, page, filter_level, generation, api
+            )
+
+        user_id = g.user_id if g.get("user_id") else None
+        project_name = request.args.get("project-name")
+        page_type = request.args.get("page-type")
+        sortby = request.args.get(
+            "sortby", ["rec_year_month_date", "start_time"]
+        )
+        page_no = int(request.args.get("page-number", 1))
+        page_size = int(request.args.get("page-size", 10000))
+
+        # Call the common utility for OpenSearch execution
+        response = handle_opensearch_query(
+            input_json=input_json,
+            project_name=project_name,
+            page_no=page_no,
+            page_size=page_size,
+            page_type=page_type,
+            sortby=sortby,
+            user_id=user_id,
+            gen3_coordinates=gen3_coordinates,
         )
 
-    try:
-        page_no = int(request.args.get('page_no', 1))
-        page_size = int(request.args.get('page_size', 10))
-        user_id = request.args.get('userid')
-        start_index = (page_no - 1) * page_size
-        end_index = page_no * page_size
-        total_user_response = []
-        response = user_info_table_cognito.query(
-            IndexName="project_name-user_id-index",
-            KeyConditionExpression=boto3.dynamodb.conditions.Key(
-                'project_name'
-            ).eq(project),
-            FilterExpression="account_status = :val",
-            ExpressionAttributeValues={":val": True},
-        )
-        if isinstance(response, ClientError):
-            raise response
-        total_user_response.extend(response["Items"])
-        while 'LastEvaluatedKey' in response:
-            logging.info("Fetching the remaining results ...")
-            print("Fetching the remaining results ...")
-            response = user_info_table_cognito.query(
-                IndexName="project_name-user_id-index",
-                KeyConditionExpression=boto3.dynamodb.conditions.Key(
-                    'project_name'
-                ).eq(project),
-                FilterExpression="account_status = :val",
-                ExpressionAttributeValues={":val": True},
-                ExclusiveStartKey=response['LastEvaluatedKey'],
-            )
-            total_user_response.extend(response["Items"])
-        users_response = get_user_data(total_user_response, project)
-        users = users_response["users"]
-        if users_response["code"] == 400:
-            return (users_response["msg"], 400)
-        filtered_users = [user for user in users if user['uid'] != user_id]
-        paginated_users = filtered_users[start_index:end_index]
-        if paginated_users:
+        if response["data"] is None:
             return (
-                jsonify(
-                    {
-                        'data': paginated_users,
-                        'message': '',
-                        'total': len(filtered_users),
-                    }
-                ),
-                200,
+                jsonify({"message": response["message"]}),
+                response["status"],
             )
+
+        return jsonify(response), 200
+
+    except KeyError as e:
+        logging.exception(e)
+        return (
+            jsonify({"message": "Parsing the query results failed."}),
+            404,
+        )
+    except IndexError as e:
+        logging.error("Error occurred: %s", str(e))
         return (
             jsonify(
                 {
-                    'message': f'No users found for project {project}',
-                    'data': [],
-                    'total': len(filtered_users),
+                    'message': f"No lookup information found for the "
+                    f"project - {project_name}."
                 }
             ),
             404,
-        )
-    except ClientError as e:
-        return (
-            jsonify({'message': f"Error: {e.response['Error']['Message']}"}),
-            500,
         )
     except Exception as e:
         logging.exception(f"An error occurred: {str(e)}")
@@ -93,56 +79,30 @@ def list_user() -> ResponseReturnValue:
             500,
         )
 
-def get_user_data(response: list, project: str) -> dict:
-    """
-    Process a user and return user data if conditions are met.
 
-    Parameters:
-        response (list): A dictionary containing user.
-        project (str): The project to check against the project list.
+For the above API we need do refactorization to make it as per the new endpoint see below  
 
-    Returns:
-        dict: A dictionary containing user information.
-    """
-    users = []
-    project_list = []
-    project_flag = "project_name"
-    for user in response:
-        attributes = {}
-        for attribute, value in user.items():
-            attributes[attribute] = value
-        if project_flag in attributes:
-            project_list = [
-                proj.strip("' ")
-                for proj in attributes[project_flag].split(',')
-            ]
-        role_info = get_role_type(attributes['role_code'])
-        if 'error' in role_info:
-            return {
-                "users": [],
-                "msg": jsonify({'message': role_info['error']}),
-                "code": 400,
-            }
-        role_name = role_info.get("role_name", "unknown")
-        role_type = role_info.get("role_type", "unknown")
-        users.append(
-            {
-                "uid": attributes.get('user_id', 'unknown'),
-                "name": attributes.get('name', 'unknown'),
-                "emp_id": attributes.get('emp_id', 'unknown'),
-                "email": attributes.get('email', 'unknown'),
-                "upn": attributes.get('upn', 'unknown'),
-                "projects": project_list,
-                "role_name": role_name,
-                "role_type": role_type,
-            }
-        )
-    return {
-        "users": users,
-        "msg": jsonify({'message': "Success"}),
-        "code": 200,
-    }
+list:eventSessionsCard
+List all available event sessions
+(page-type=event_sessions)
+GET
+old endpoint /fetch-events-for-listing
+GET
+new endpoint /api/v1/eventSessions
 
+read:eventSessionsCard
+View details of one particular drive session
+(page-type=event_sessions)
+POST
+old endpoint /fetch-events-for-listing
+POST
+new endpoint /api/v1/eventSessions/:id
 
-I want to Review the above code.
-Please review and give me suggestion what can be improved so that code can be resilient and moduler 
+list:eventSessionsTrajectory
+List trajectories of all drive sessions
+(page-type=map_summary)
+GET
+old endpoint /fetch-events-for-listing
+GET
+new endpoint /api/v1/eventSessions/trajectory
+
