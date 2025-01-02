@@ -7,3 +7,57 @@ Refactoring to routes:
 /api/v1/driveSessions/status/filters
 
 This is the highlevel user story points give me the AC, DOD and DOR for frontend and backend.
+
+
+Here’s a detailed breakdown of the Acceptance Criteria (AC), Definition of Done (DoD), and Definition of Ready (DoR) for the frontend and backend tasks related to the refactor:
+
+Frontend
+
+Acceptance Criteria (AC)
+	1.	The application must consume the new API routes:
+	•	/api/v1/driveSessions/filters
+	•	/api/v1/eventSessions/filters
+	•	/api/v1/driveSessions/status/filters
+	2.	Update API calls to include proper authorization tokens in the headers.
+	3.	Ensure the UI displays filter attributes correctly for both drive sessions and event sessions.
+	4.	Provide meaningful error messages for authorization failures or API errors (e.g., 401, 403, 500).
+	5.	Retain the same user experience and design with no regressions.
+
+Definition of Done (DoD)
+	1.	Code is implemented, committed, and pushed to the repository.
+	2.	The updated API routes are fully integrated into the frontend.
+	3.	Frontend unit and integration tests are written, executed, and pass successfully.
+	4.	Manual testing confirms proper handling of both authorized and unauthorized scenarios.
+	5.	Documentation is updated (if necessary) for API usage and authentication handling in the frontend.
+
+Definition of Ready (DoR)
+	1.	Clear requirements for the new API endpoints are shared and understood.
+	2.	Mock data or a working backend is available for development and testing.
+	3.	Authorization method (e.g., Bearer tokens) and error scenarios are documented.
+	4.	UI/UX acceptance criteria and dependencies are agreed upon with the team.
+
+Backend
+
+Acceptance Criteria (AC)
+	1.	The existing /fetch-filter-attributes-v2 route must be deprecated.
+	2.	New routes /api/v1/driveSessions/filters, /api/v1/eventSessions/filters, and /api/v1/driveSessions/status/filters are implemented.
+	3.	Implement role-based authorization logic to ensure only authorized users can access the API.
+	4.	Ensure proper response codes for both successful and failed authorization.
+	5.	Backward compatibility is maintained until the frontend is fully integrated.
+	6.	API endpoints must adhere to RESTful standards.
+
+Definition of Done (DoD)
+	1.	Code for new routes is implemented and pushed to the repository.
+	2.	Authorization middleware is implemented and tested for all new routes.
+	3.	Unit and integration tests are written and executed, covering successful cases, unauthorized access, and error scenarios.
+	4.	API documentation is updated to include the new routes, parameters, and authorization details.
+	5.	Postman collection or other API testing scripts are updated for the new routes.
+
+Definition of Ready (DoR)
+	1.	Approval of the new route structure from stakeholders or the API design team.
+	2.	Authorization requirements (roles, tokens, etc.) are clearly defined and shared.
+	3.	Test cases for unit and integration testing are agreed upon.
+	4.	Clear deprecation plan for the old endpoint /fetch-filter-attributes-v2.
+
+These criteria ensure smooth development and transition for both the backend and frontend refactor tasks. Let me know if you need further adjustments!
+
