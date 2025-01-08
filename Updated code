@@ -1,4 +1,3 @@
-I have to write a test cases for this below API,
 
 @drivesession_blueprint.route('/api/v1/driveSessions/filters', methods=['GET'])
 @cognito_auth_required
@@ -49,9 +48,394 @@ def list_drive_session_filters() -> ResponseReturnValue:
     except Exception as e:
         logging.exception(f"An error occurred: {str(e)}")
         return jsonify({"message": str(e)}), 500
+		
+
+I have written a test case for above api but i was getting an issue i will provide you the whole code please debug and resolved
+
+def put_parameter_store_config(ssm_client, env="Dev"):
+    params = [
+        {
+            "DataType": "text",
+            "Type": "String",
+            "Name": f"/{env}/DDB/LookupTable",
+            "Value": LOOKUP_TABLE_NAME
+        },
+        {
+            "DataType": "text",
+            "Type": "String",
+            "Name": f"/{env}/DDB/FilterAttributesTable",
+            "Value": "dmp-filter-attributes"
+        },
+        {
+            "DataType": "text",
+            "Type": "String",
+            "Name": f"/{env}/DDB/MapDetailsTable",
+            "Value": MAP_INFO_TABLE_NAME
+        },
+        {
+            "DataType": "text",
+            "Type": "String",
+            "Name": f"/{ENV}/APILogging/CloudWatch/LogGroupName",
+            "Value": CLOUDWATCH_LOG_GROUP_NAME
+        },
+        {
+            "DataType": "text",
+            "Type": "String",
+            "Name": f"/{env}/UserManagement/DDB/UserTable",
+            "Value": USER_TABLE_NAME
+        },
+        {
+            "DataType": "text",
+            "Type": "String",
+            "Name": f"/{ENV}/DescriptionAPI/Endpoint/URL",
+            "Value": "https://test-api.com/fetch_description"
+        },
+        {
+            "DataType": "text",
+            "Type": "String",
+            "Name": f"/{ENV}/UserManagement/Cognito/COGNITO_USERPOOL_ID",
+            "Value": "mock_id"
+        },
+    ]
+    for param in params:
+        _ = ssm_client.put_parameter(**param)
+		
+def create_users_table(resource):
+    """Create User Table"""
+    resource.create_table(
+        TableName=USER_TABLE_NAME,
+        KeySchema=[
+            {
+                "AttributeName": "user_id",
+                "KeyType": "HASH"
+            },
+            {
+                "AttributeName": "email_id",
+                "KeyType": "RANGE"
+            }
+        ],
+        BillingMode="PAY_PER_REQUEST",
+        TableClass="STANDARD",
+        AttributeDefinitions=[
+            {
+                "AttributeName": "user_id",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "email_id",
+                "AttributeType": "S"
+            }
+        ]
+    )
+
+def insert_items_into_users_table(table):
+    """Insert users data in user table"""
+    for item in SAMPLE_USER_DATA:
+        table.put_item(
+            Item=item
+        )
+		
+def create_cloudwatch_log_group(cloudwatch_log_client, log_group_name):
+    """Creates a cloudwatch log group"""
+    cloudwatch_log_client.create_log_group(
+        logGroupName=log_group_name,
+    )
 
 
-Please refere one the pattern for authentication for test cases see below
+def delete_cloudwatch_log_group(cloudwatch_log_client, log_group_name):
+    """Delete cloudwatch log group"""
+    cloudwatch_log_client.delete_log_group(
+        logGroupName=log_group_name
+    )
+	
+def create_role_info_table(ddb_resource):
+    """
+    Create a Role Info DynamoDB Table.
+
+    Args:
+        ddb_resource: Mocked DynamoDB resource
+    """
+    ddb_resource.create_table(
+        AttributeDefinitions=[
+            {
+                "AttributeName": "role_code",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "type",
+                "AttributeType": "S"
+            }
+        ],
+        TableName=ROLE_TABLE_NAME,
+        BillingMode="PAY_PER_REQUEST",
+        KeySchema=[
+            {
+                "AttributeName": "role_code",
+                "KeyType": "HASH"
+            },
+            {
+                "AttributeName": "type",
+                "KeyType": "RANGE"
+            }
+        ]
+    )
+
+
+def add_roles_to_ddb(ddb_resource):
+    """
+    Create a Role Info DynamoDB Table.
+
+    Args:
+        ddb_resource: Mocked DynamoDB resource
+    """
+    table = ddb_resource.Table(ROLE_TABLE_NAME)
+
+    for role in ROLE_TABLE_ITEMS:
+        table.put_item(Item=role)
+		
+def create_lookup_table(resource):
+    """Create lookup table."""
+    resource.create_table(
+        TableName=LOOKUP_TABLE_NAME,
+        KeySchema=[
+            {
+                "AttributeName": "bucket_name",
+                "KeyType": "HASH"
+            },
+            {
+                "AttributeName": "project_name",
+                "KeyType": "RANGE"
+            }
+        ],
+        BillingMode="PROVISIONED",
+        ProvisionedThroughput={
+            "ReadCapacityUnits": 10,
+            "WriteCapacityUnits": 10
+        },
+        TableClass="STANDARD",
+        AttributeDefinitions=[
+            {
+                "AttributeName": "bucket_name",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "project_name",
+                "AttributeType": "S"
+            }
+        ]
+    )
+
+
+def create_cloudwatch_log_group(cloudwatch_log_client, log_group_name):
+    """Creates a cloudwatch log group"""
+    cloudwatch_log_client.create_log_group(
+        logGroupName=log_group_name,
+    )
+
+
+def delete_cloudwatch_log_group(cloudwatch_log_client, log_group_name):
+    """Delete cloudwatch log group"""
+    cloudwatch_log_client.delete_log_group(
+        logGroupName=log_group_name
+    )
+
+def create_filter_attribute_table(ddb_resource):
+    """Create DynamoDB filter attribute Table"""
+    ddb_resource.create_table(
+        AttributeDefinitions=[
+            {
+                "AttributeName": "page",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "filter_level",
+                "AttributeType": "S"
+            }
+        ],
+        TableName=FILTER_ATTRIBUTES_TABLE_NAME,
+        KeySchema=[
+            {
+                "AttributeName": "page",
+                "KeyType": "HASH"
+            },
+            {
+                "AttributeName": "filter_level",
+                "KeyType": "RANGE"
+            }
+        ],
+        BillingMode="PAY_PER_REQUEST"
+    )
+
+
+def insert_items_into_filter_drive_data(table, data):
+    table.put_item(
+        Item={
+            'page': data['page']['S'],
+            'filter_level': data['filter_level']['S'],
+            'attributes': data['attributes']
+        }
+    )
+	
+def create_index(index_name, session_type):
+    _index = Index(name=index_name)
+    _index.settings(number_of_shards=1, number_of_replicas=0)
+    if session_type == "drive":
+        _index.document(DriveSession)
+    _index.create(using=OS_DB_CLIENT)
+
+
+def delete_index(index_name):
+    if OS_DB_CLIENT.indices.exists(index=index_name):
+        OS_DB_CLIENT.indices.delete(index=index_name)
+
+
+def insert_data_to_index(index_name, session_type, data):
+    for d in data:
+        if session_type == "drive":
+            doc_id = d["vehicle_id"] + "#" + d["folder_name"]
+        else:
+            doc_id = d["id"]
+        OS_DB_CLIENT.index(index=index_name, body=d, id=doc_id, refresh=True)
+
+# Sample Filter drive data
+SAMPLE_FILTER_DRIVE_DATA = {
+  "page": {
+    "S": "drive_sessions"
+  },
+  "filter_level": {
+    "S": "L2"
+  },
+  "attributes": {
+    "M": {
+      "folder_name": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "props": {
+            "M": {
+              "label": {
+                "S": "folder_name"
+              },
+              "variant": {
+                "S": "outlined"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month": {
+        "M": {
+          "component": {
+            "S": "DatePicker"
+          },
+          "props": {
+            "M": {
+              "format": {
+                "S": "YYYY/MM"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month_date": {
+        "M": {
+          "component": {
+            "S": "DatePicker"
+          },
+          "props": {
+            "M": {
+              "format": {
+                "S": "YYYY/MM/DD"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month_date_range": {
+        "M": {
+          "component": {
+            "S": "DateTimeRangeFilter"
+          },
+          "db_fields": {
+            "L": [
+              {
+                "S": "rec_year_month_date"
+              }
+            ]
+          },
+          "type": {
+            "S": "range"
+          }
+        }
+      },
+      "tags": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "multiple": {
+            "S": "true"
+          },
+          "props": {
+            "M": {
+              "label": {
+                "S": "tags"
+              },
+              "variant": {
+                "S": "outlined"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "vehicle_id": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "props": {
+            "M": {
+              "dropdown_name": {
+                "S": "vehicle_id"
+              },
+              "dropdown_values": {
+                "L": []
+              },
+              "label": {
+                "S": "vehicle_id"
+              },
+              "values": {
+                "L": []
+              },
+              "variant": {
+                "S": "outlined"
+              },
+              "visibility": {
+                "BOOL": "true"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      }
+    }
+  }
+}
 
 @mock_aws
 @patch('flask_cognito.cognito_auth_required', lambda f: f)
@@ -59,10 +443,10 @@ Please refere one the pattern for authentication for test cases see below
        Mock(return_value=USER_CONFIG_DETAILS))
 @patch("auth.routes.get_user_details")
 @patch("auth.routes.current_cognito_jwt", {"sub": "mock_user_id"})
-def test_drive_session_status_no_index_info(mock_get_user_details,
-                                           cloudwatch_log_client, ssm_client,
-                                           dynamodb_resource):
-    """No index name in lookup"""
+def test_list_drive_session_filters_(mock_get_user_details,
+                                       cloudwatch_log_client, ssm_client,
+                                       dynamodb_resource):
+    """Test successful retrieval of drive session filters"""
     put_parameter_store_config(ssm_client, ENV)
 
     create_users_table(dynamodb_resource)
@@ -77,6 +461,7 @@ def test_drive_session_status_no_index_info(mock_get_user_details,
     delete_index(TEST_DRIVE_TABLE_NAME)
 
     with patch('utility.get_db_client') as mock_get_db_client:
+        
         mock_get_db_client.return_value = OS_DB_CLIENT
         from main import app
         app.config['TESTING'] = True
@@ -90,15 +475,259 @@ def test_drive_session_status_no_index_info(mock_get_user_details,
         }
         with app.test_client() as client:
             client.set_cookie("user_id", "100")
+
             create_lookup_table(dynamodb_resource)
+            lookup_resource = dynamodb_resource.Table(LOOKUP_TABLE_NAME)
+            insert_items_into_lookup_table(lookup_resource)
 
-            response = client.get(
-                f"/api/v1/driveSessions/status?project-name="
-                f"{lookup_data[1]['project_name']}")
+            create_filter_attribute_table(dynamodb_resource)
+            filter_table = dynamodb_resource.Table(FILTER_ATTRIBUTES_TABLE_NAME)
+            insert_items_into_filter_drive_data(filter_table, SAMPLE_FILTER_DRIVE_DATA)
 
-            assert response.status_code == 404
-            assert response.json["message"] == "No lookup information found " \
-                                               f"for the project - {lookup_data[1]['project_name']}."
+            create_index(TEST_DRIVE_TABLE_NAME, "drive")
+            insert_data_to_index(TEST_DRIVE_TABLE_NAME, "drive",
+                                 SAMPLE_DRIVE_DATA)
+            response = client.get('/api/v1/driveSessions/filters',
+                                  query_string={
+                                    'page': "drive_sessions",
+                                    'filter_level': "L2",
+                                    'project_name': f"{lookup_data[0]['project_name']}"
+                                })
+
+            expected_response = {
+                'folder_name': {
+                    'component': 'Text', 
+                    'props': {
+                        'label': 'folder_name', 
+                        'variant': 'outlined'
+                        }, 
+                    'type': 'text'
+                    }, 
+                'rec_year_month': {
+                    'component': 'DatePicker', 
+                    'props': {
+                        'format': 'YYYY/MM'
+                        }, 
+                    'type': 'text'
+                    }, 
+                'rec_year_month_date': {
+                    'component': 'DatePicker', 
+                    'props': {
+                        'format': 'YYYY/MM/DD'
+                        }, 
+                    'type': 'text'
+                    }, 
+                'rec_year_month_date_range': {
+                    'component': 'DateTimeRangeFilter', 
+                    'db_fields': ['rec_year_month_date'], 
+                    'type': 'range'
+                    }, 
+                    'tags': {
+                        'component': 'Text', 
+                        'multiple': 'true', 
+                        'props': {
+                            'label': 'tags', 
+                            'variant': 'outlined'
+                            }, 
+                    'type': 'text'
+                    }, 
+                'vehicle_id': {
+                    'component': 'Text', 
+                    'props': {
+                        'dropdown_name': 'vehicle_id',
+                        'dropdown_values': [], 
+                        'label': 'vehicle_id', 
+                        'values': [], 
+                        'variant': 'outlined', 
+                        'visibility': 'true'
+                        }, 
+                    'type': 'text'
+                    }
+                }
+
+            data = response.json
+            print(f"data: {data}")
+            assert response.status_code == 200
+            assert data == expected_response
 
     delete_cloudwatch_log_group(
         cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+		
+	
+Error details 
+
+mock_get_user_details = <MagicMock name='get_user_details' id='139886158351280'>
+cloudwatch_log_client = <botocore.client.CloudWatchLogs object at 0x7f39c9205fa0>
+ssm_client = <botocore.client.SSM object at 0x7f39c8d15d00>
+dynamodb_resource = dynamodb.ServiceResource()
+
+    @mock_aws
+    @patch('flask_cognito.cognito_auth_required', lambda f: f)
+    @patch("auth.utils.get_user_management_config",
+           Mock(return_value=USER_CONFIG_DETAILS))
+    @patch("auth.routes.get_user_details")
+    @patch("auth.routes.current_cognito_jwt", {"sub": "mock_user_id"})
+    def test_list_drive_session_filters_(mock_get_user_details,
+                                           cloudwatch_log_client, ssm_client,
+                                           dynamodb_resource):
+        """Test successful retrieval of drive session filters"""
+        put_parameter_store_config(ssm_client, ENV)
+    
+        create_users_table(dynamodb_resource)
+        user_table = dynamodb_resource.Table(USER_TABLE_NAME)
+        insert_items_into_users_table(user_table)
+    
+        create_cloudwatch_log_group(
+            cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+        create_role_info_table(dynamodb_resource)
+        add_roles_to_ddb(dynamodb_resource)
+    
+        delete_index(TEST_DRIVE_TABLE_NAME)
+    
+        with patch('utility.get_db_client') as mock_get_db_client:
+    
+            mock_get_db_client.return_value = OS_DB_CLIENT
+            from main import app
+            app.config['TESTING'] = True
+            app.config["RoleTable"] = ROLE_TABLE_NAME
+            app.extensions = MagicMock()
+            app.extensions["cognito_auth"].return_value = "mock_token"
+            mock_get_user_details.return_value = {
+                "projects": ["test-project"],
+                "groups": [],
+                "scopes": ROLE_TABLE_ITEMS[0]["scopes"]
+            }
+            with app.test_client() as client:
+                client.set_cookie("user_id", "100")
+    
+                create_lookup_table(dynamodb_resource)
+                lookup_resource = dynamodb_resource.Table(LOOKUP_TABLE_NAME)
+                insert_items_into_lookup_table(lookup_resource)
+    
+                create_filter_attribute_table(dynamodb_resource)
+                filter_table = dynamodb_resource.Table(FILTER_ATTRIBUTES_TABLE_NAME)
+                insert_items_into_filter_drive_data(filter_table, SAMPLE_FILTER_DRIVE_DATA)
+    
+                create_index(TEST_DRIVE_TABLE_NAME, "drive")
+                insert_data_to_index(TEST_DRIVE_TABLE_NAME, "drive",
+                                     SAMPLE_DRIVE_DATA)
+                response = client.get('/api/v1/driveSessions/filters',
+                                      query_string={
+                                        'page': "drive_sessions",
+                                        'filter_level': "L2",
+                                        'project_name': f"{lookup_data[0]['project_name']}"
+                                    })
+    
+                expected_response = {
+                    'folder_name': {
+                        'component': 'Text',
+                        'props': {
+                            'label': 'folder_name',
+                            'variant': 'outlined'
+                            },
+                        'type': 'text'
+                        },
+                    'rec_year_month': {
+                        'component': 'DatePicker',
+                        'props': {
+                            'format': 'YYYY/MM'
+                            },
+                        'type': 'text'
+                        },
+                    'rec_year_month_date': {
+                        'component': 'DatePicker',
+                        'props': {
+                            'format': 'YYYY/MM/DD'
+                            },
+                        'type': 'text'
+                        },
+                    'rec_year_month_date_range': {
+                        'component': 'DateTimeRangeFilter',
+                        'db_fields': ['rec_year_month_date'],
+                        'type': 'range'
+                        },
+                        'tags': {
+                            'component': 'Text',
+                            'multiple': 'true',
+                            'props': {
+                                'label': 'tags',
+                                'variant': 'outlined'
+                                },
+                        'type': 'text'
+                        },
+                    'vehicle_id': {
+                        'component': 'Text',
+                        'props': {
+                            'dropdown_name': 'vehicle_id',
+                            'dropdown_values': [],
+                            'label': 'vehicle_id',
+                            'values': [],
+                            'variant': 'outlined',
+                            'visibility': 'true'
+                            },
+                        'type': 'text'
+                        }
+                    }
+    
+                data = response.json
+                print(f"data: {data}")
+>               assert response.status_code == 200
+E               assert 500 == 200
+E                +  where 500 = <WrapperTestResponse 125 bytes [500 INTERNAL SERVER ERROR]>.status_code
+
+drivesession/tests/test_routes.py:624: AssertionError
+-------------------------------------- Captured stdout call ---------------------------------------
+data: {'message': 'An error occurred (ResourceNotFoundException) when calling the GetItem operation: Requested resource not found'}
+-------------------------------------- Captured stderr call ---------------------------------------
+[ERROR] - 2025-01-08 14:30:34,724 - helpers - Could not find one or more parameters in Parameter Store
+Traceback (most recent call last):
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/helpers.py", line 77, in get_ddb_table_names
+    table_names['role_table'] = ssm_client.get_parameter(
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/botocore/client.py", line 569, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/botocore/client.py", line 1023, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.ParameterNotFound: An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Prod/UserManagement/DDB/RoleTable not found.
+[INFO] - 2025-01-08 14:30:34,725 - helpers - Parameters store: Lookup: FOT-Honda-lookup, MapDetails: global-map-details, FilterAttr: dmp-filter-attributes, UserTable: users, UserPoolID: mock_id, RoleTable: 
+[INFO] - 2025-01-08 14:30:35,170 - root - Fetched CloudWatch Group for API logging: /test-logs/
+[INFO] - 2025-01-08 14:30:35,470 - opensearch - PUT https://localhost:9200/dmp-projectname-drive-data [status:200 request:0.236s]
+[INFO] - 2025-01-08 14:30:35,575 - opensearch - PUT https://localhost:9200/dmp-projectname-drive-data/_doc/11%2320220301_024541?refresh=true [status:201 request:0.104s]
+[INFO] - 2025-01-08 14:30:35,601 - opensearch - PUT https://localhost:9200/dmp-projectname-drive-data/_doc/11%2320220301_075415?refresh=true [status:201 request:0.026s]
+[INFO] - 2025-01-08 14:30:35,698 - opensearch - PUT https://localhost:9200/dmp-projectname-drive-data/_doc/11%2320220301_000401?refresh=true [status:201 request:0.096s]
+[INFO] - 2025-01-08 14:30:35,725 - opensearch - PUT https://localhost:9200/dmp-projectname-drive-data/_doc/12%2320220301_012315?refresh=true [status:201 request:0.028s]
+[INFO] - 2025-01-08 14:30:35,752 - opensearch - PUT https://localhost:9200/dmp-projectname-drive-data/_doc/13%2320220301_233557?refresh=true [status:201 request:0.026s]
+[INFO] - 2025-01-08 14:30:35,753 - Auth-Logs - User perms: ['list:driveSessionsCard', 'read:driveSessionsCard', 'list:driveSessionsTrajectory', 'read:driveSessionsTrajectory', 'read:driveSessionsStats', 'read:driveSessionsSpeedStats', 'read:driveSessionsDistanceStats', 'list:driveSessionsFilters', 'list:driveSessionsTags', 'write:driveSessionsTags', 'list:driveSessionsStatus', 'download:driveSessionsStatusLog', 'list:driveSessionsStatusFilters', 'view:driveSessionsData', 'download:driveSessionsData', 'list:driveSessionsData', 'share:driveSessionsCard', 'list:eventSessionsCard', 'read:eventSessionsCard', 'list:eventSessionsTrajectory', 'read:eventSessionsTrajectory', 'read:eventSessionsStats', 'list:eventSessionsFilters', 'list:eventSessionsTags', 'write:eventSessionsTags', 'list:eventSessionsStatus', 'list:eventSessionsGroup', 'read:eventSessionsStatusLog', 'list:eventSessionsStatusFilters', 'create:eventSessions', 'view:eventSessionsData', 'share:eventSessionsCard', 'list:projects', 'list:projectDetails', 'create:projects', 'read:projects', 'write:projects', 'delete:projects', 'list:users', 'create:users', 'read:users', 'write:users', 'delete:users', 'list:tickets', 'create:tickets', 'read:tickets', 'write:tickets']
+[ERROR] - 2025-01-08 14:30:35,768 - root - An error occurred: An error occurred (ResourceNotFoundException) when calling the GetItem operation: Requested resource not found
+Traceback (most recent call last):
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/drivesession/routes.py", line 44, in list_drive_session_filters
+    filter_response = filter_attributes_table.get_item(
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/boto3/resources/factory.py", line 581, in do_action
+    response = action(self, *args, **kwargs)
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/boto3/resources/action.py", line 88, in __call__
+    response = getattr(parent.meta.client, operation_name)(*args, **params)
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/botocore/client.py", line 569, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/botocore/client.py", line 1023, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundException) when calling the GetItem operation: Requested resource not found
+[INFO] - 2025-01-08 14:30:35,769 - API-Log - {'user_id': 'mock_user_id', 'remote_ip': '127.0.0.1', 'source_path': '/api/v1/driveSessions/filters', 'request_method': 'GET', 'request_headers': {'User-Agent': 'Werkzeug/3.0.3', 'Host': 'localhost'}, 'request_endpoint': 'drivesession.list_drive_session_filters', 'response_headers': {'Content-Type': 'application/json', 'Content-Length': '125'}, 'response_status': 500, 'duration': 16.647, 'invoked_time': datetime.datetime(2025, 1, 8, 14, 30, 35, 753058)}
+[INFO] - 2025-01-08 14:30:35,770 - root - API Log: {'user_id': 'mock_user_id', 'remote_ip': '127.0.0.1', 'source_path': '/api/v1/driveSessions/filters', 'request_method': 'GET', 'request_headers': {'User-Agent': 'Werkzeug/3.0.3', 'Host': 'localhost'}, 'request_endpoint': 'drivesession.list_drive_session_filters', 'response_headers': {'Content-Type': 'application/json', 'Content-Length': '125'}, 'response_status': 500, 'duration': 16.647, 'invoked_time': datetime.datetime(2025, 1, 8, 14, 30, 35, 753058)}
+======================================== warnings summary =========================================
+../../../env/lib/python3.9/site-packages/opensearchpy/connection/http_urllib3.py:214
+  /home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/opensearchpy/connection/http_urllib3.py:214: UserWarning: Connecting to https://localhost:9200 using SSL with verify_certs=False is insecure.
+    warnings.warn(
+
+../../../env/lib/python3.9/site-packages/urllib3/connectionpool.py:1064
+dashboard/backend/drivesession/tests/test_routes.py::test_list_drive_session_filters_
+dashboard/backend/drivesession/tests/test_routes.py::test_list_drive_session_filters_
+  /home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/urllib3/connectionpool.py:1064: InsecureRequestWarning: Unverified HTTPS request is being made to host 'localhost'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/1.26.x/advanced-usage.html#ssl-warnings
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+===================================== short test summary info =====================================
+FAILED drivesession/tests/test_routes.py::test_list_drive_session_filters_ - assert 500 == 200
+================================== 1 failed, 4 warnings in 2.74s ==================================
+/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/watchtower/__init__.py:409: WatchtowerWarning: Failed to deliver logs: An error occurred (UnrecognizedClientException) when calling the PutLogEvents operation: The security token included in the request is invalid.
+  warnings.warn(f"Failed to deliver logs: {e}", WatchtowerWarning)
+/home/kpit/ADCP_DEV/env/lib/python3.9/site-packages/watchtower/__init__.py:415: WatchtowerWarning: Failed to deliver logs: None
+  warnings.warn(f"Failed to deliver logs: {response}", WatchtowerWa	
