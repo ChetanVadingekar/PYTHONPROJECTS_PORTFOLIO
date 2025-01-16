@@ -57,4 +57,4 @@ def test_list_drive_session_filters_scan_client_error(mock_get_user_details,
 
 test case getting failed due to 
 
-root - DynamoDB ClientError: An error occurred (Unknown) when calling the scan operation: Unknown
+DynamoDB ClientError: An error occurred (Unknown) when calling the Scan operation: validation error occured
