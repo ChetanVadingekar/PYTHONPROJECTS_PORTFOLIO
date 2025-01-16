@@ -1,26 +1,61 @@
-- dashboard
-	- backend
-		- drivessession
-			- tests
-				- index_models.py
-				- test_data_collection.py
-				- test_routes.py
-			- routes.py
-			
-		- drivessessionstatus
-			- tests
-				- index_models.py
-				- test_data_collection.py
-				- test_routes.py
-			- routes.py
-			
-		- eventssession
-			- tests
-				- index_models.py
-				- test_data_collection.py
-				- test_routes.py
-			- routes.py
-			
-			
-So i have this kind of folder Structure but index_models and test_data_collection same files were used in drivessession, drivessessionstatus and eventssession module.
-so we have to make it in one module so that we can import it from there only.
+I have this API see below,
+
+@drivesession_blueprint.route('/api/v1/driveSessions/filters', methods=['GET'])
+@cognito_auth_required
+@authorization_required(perms={"list:driveSessionsFilters"})
+def list_drive_session_filters() -> ResponseReturnValue:
+    """
+    Fetch filter options for filtering DriveSessions entries.
+
+    Returns:
+        (ResponseReturnValue): filter options list and status code.
+    """
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        project_name = request.args.get('project_name')
+        lookup_response = lookup_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
+                project_name
+            )
+        )
+        items = lookup_response.get('Items', [])
+        for item in items:
+            drive_session_index_name = str(
+                item.get("drive_session_table_name", "")
+            )
+        filter_response = filter_attributes_table.get_item(
+            Key={'page': page, 'filter_level': filter_level}
+        )
+        response = filter_response['Item']['attributes']  # type: ignore
+        final_response = append_vehicle_ids(
+            response, drive_session_index_name
+        )
+        logging.info(
+            f"dynamoDB response for fetching filter "
+            f"attributes: {final_response}"
+        )
+        return (
+            jsonify(final_response),  # type: ignore
+            200,
+        )
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return (
+            jsonify({'message': "No generation category information found"}),
+            404,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
+
+I got the review comment 
+
+
+items = lookup_response.get("Items", [])
+if not items:
+    <raise some error for project not found>
+
+table_name = items["Item"].get("drive_session_table_name", "")
+if not table_name:
+    <raise some error for drive session table name not found>
