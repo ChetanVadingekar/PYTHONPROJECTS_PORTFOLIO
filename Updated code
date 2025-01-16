@@ -1,21 +1,102 @@
+@drivesession_blueprint.route('/api/v1/driveSessions/filters', methods=['GET'])
+@cognito_auth_required
+@authorization_required(perms={"list:driveSessionsFilters"})
+def list_drive_session_filters() -> ResponseReturnValue:
+    """
+    Fetch filter options for filtering DriveSessions entries.
+
+    Returns:
+        (ResponseReturnValue): filter options list and status code.
+    """
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        project_name = request.args.get('project_name')
+        lookup_response = lookup_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
+                project_name
+            )
+        )
+
+        while lookup_response.get("LastEvaluatedKey"):
+            response = lookup_table.scan(
+                FilterExpression=boto3.dynamodb.conditions.
+                Attr('project_name').eq(project_name),
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            if response.get("Items"):
+                lookup_response.extend(response.get("Items"))
+
+        items = lookup_response.get('Items', [])
+        if not items:
+            raise ValueError("Project not found")
+        
+        for item in items:
+            drive_session_index_name = str(
+                item.get("drive_session_table_name", "")
+            )
+        if not drive_session_index_name:
+            raise ValueError("Drive session table not found")
+        
+        filter_response = filter_attributes_table.get_item(
+            Key={'page': page, 'filter_level': filter_level}
+        )
+        if 'Item' not in filter_response:
+            raise KeyError("Filter attributes not found")
+        
+        response = filter_response['Item']['attributes']
+        final_response = append_vehicle_ids(
+            response, drive_session_index_name
+        )
+        logging.info(
+            f"dynamoDB response for fetching filter "
+            f"attributes: {final_response}"
+        )
+        return (
+            jsonify(final_response),
+            200,
+        )
+    except ValueError as e:
+        logging.error(f"Validation Error: {str(e)}")
+        return (
+            jsonify({'message': str(e)}),
+            404,
+        )
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return (
+            jsonify({'message': str(e)}),
+            404,
+        )
+    except botocore.exceptions.ClientError as e:
+        logging.error(f"DynamoDB ClientError: {str(e)}")
+        return (
+            jsonify({'message': "An error occured while querying DynamoDB"}),
+            500,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
+
+
 @mock_aws
 @patch('flask_cognito.cognito_auth_required', lambda f: f)
-@patch("auth.utils.get_user_management_config",
-       Mock(return_value=USER_CONFIG_DETAILS))
+@patch("auth.utils.get_user_management_config", Mock(return_value=USER_CONFIG_DETAILS))
 @patch("auth.routes.get_user_details")
 @patch("auth.routes.current_cognito_jwt", {"sub": "mock_user_id"})
-def test_list_drive_session_filters_scan_client_error(mock_get_user_details,
-                                       cloudwatch_log_client, ssm_client,
-                                       dynamodb_resource):
-    """Test Case: When DynamoDB scan throws a ClientError"""
+def test_list_drive_session_filters_pagination_success(
+    mock_get_user_details, cloudwatch_log_client, ssm_client, dynamodb_resource
+):
+    """Test Case: When DynamoDB scan handles pagination correctly"""
+    
     put_parameter_store_config(ssm_client, ENV)
     
+    # Create the necessary tables and insert test data
     create_users_table(dynamodb_resource)
     user_table = dynamodb_resource.Table(USER_TABLE_NAME)
     insert_items_into_users_table(user_table)
 
-    create_cloudwatch_log_group(
-        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+    create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
     create_role_info_table(dynamodb_resource)
     add_roles_to_ddb(dynamodb_resource)
     delete_index(TEST_DRIVE_TABLE_NAME)
@@ -27,11 +108,29 @@ def test_list_drive_session_filters_scan_client_error(mock_get_user_details,
     with patch('utility.get_db_client') as mock_get_db_client:
         mock_get_db_client.return_value = OS_DB_CLIENT
         with patch('drivesession.routes.lookup_table.scan') as mock_scan:
-            mock_scan.side_effect = botocore.exceptions.ClientError(
-                error_response={
-                    'Error': {"code": "ValidationException"}},
-                operation_name="Scan"
-            )
+            mock_scan.side_effect = [
+                {
+                    "Items": [
+                        {
+                            'project_name': (f"{lookup_data[0]['project_name']}"), 
+                            'drive_session_table_name': (f"{lookup_data[6]['project_name']}")
+                        }
+                    ],
+                    "LastEvaluatedKey": {
+                        'project_name': (f"{lookup_data[1]['project_name']}"), 
+                        'drive_session_table_name': (f"{lookup_data[6]['project_name']}")
+                    }
+                },
+                {
+                    "Items": [
+                        {
+                            'project_name': (f"{lookup_data[1]['project_name']}"), 
+                            'drive_session_table_name': (f"{lookup_data[6]['project_name']}")
+                        }
+                    ]
+                }
+            ]
+            
             from main import app
             app.config['TESTING'] = True
             mock_get_user_details.return_value = {
@@ -43,18 +142,20 @@ def test_list_drive_session_filters_scan_client_error(mock_get_user_details,
             with app.test_client() as client:
                 response = client.get('/api/v1/driveSessions/filters',
                                       query_string={
-                                        'page': PAGE, 
-                                        'filter_level': FILTER_LEVEL,
-                                        'project_name': (f"{lookup_data[0]['project_name']}")
-                                    })
-                json_data = response.get_json()
-                assert response.status_code == 500
-                assert json_data['message'] == "An error occured while querying DynamoDB"
+                                          'page': PAGE, 
+                                          'filter_level': FILTER_LEVEL,
+                                          'project_name': f"{lookup_data[0]['project_name']}"
+                                      })
 
-    delete_cloudwatch_log_group(
-        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+                assert response.status_code == 200
+                assert isinstance(response.json, list)
+                assert len(response.json) > 0
+
+    delete_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
 
 
-test case getting failed due to 
-
-DynamoDB ClientError: An error occurred (Unknown) when calling the Scan operation: validation error occured
+[ERROR] - 2025-01-16 22:12:25,134 - root - An error occurred: local variable 'response' referenced before assignment
+Traceback (most recent call last):
+  File "/home/kpit/ADCP_DEV/ADCP-Development/dashboard/backend/drivesession/routes.py", line 49, in list_drive_session_filters
+    ExclusiveStartKey=response["LastEvaluatedKey"],
+UnboundLocalError: local variable 'response' referenced before assignment
