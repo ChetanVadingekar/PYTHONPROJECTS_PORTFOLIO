@@ -1,100 +1,154 @@
-DDB data
+class DriveSessionVehicleUtility:
+    """
+    A utility class for querying unique vehicle IDs from drive session index.
+
+    Attributes:
+        index_name (str): The name of the OpenSearch drive session index.
+    """
+
+    def __init__(self: DriveSessionVehicleUtilityVar, index_name: str) -> None:
+        """
+        Initialize the DriveSessionVehicleUtility.
+
+        Args:
+            index_name (str): The name of the OpenSearch drive session index.
+        """
+        self.index_name = index_name
+
+    def create_vehicle_id_query(
+        self: DriveSessionVehicleUtilityVar,
+        after_key: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """
+        Create a query to retrieve unique vehicle IDs from the index.
+
+        Args:
+            after_key (optional[dict]): The pagination key for aggregations.
+
+        Returns:
+            dict: The OpenSearch query.
+        """
+        query: dict[str, Any] = {
+            "size": 0,
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"current_status": {"value": "Completed"}}}
+                    ]
+                }
+            },
+            "aggs": {
+                "unique_vehicle_ids": {
+                    "composite": {
+                        "sources": [
+                            {"vehicle_id": {"terms": {"field": "vehicle_id"}}}
+                        ],
+                        "size": 10000,
+                    }
+                }
+            },
+        }
+        if after_key:
+            query["aggs"]["unique_vehicle_ids"]["composite"][
+                "after"
+            ] = after_key
+        return query
+
+    def create_vehicle_id_query_all_status(
+        self: DriveSessionVehicleUtilityVar,
+        after_key: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """
+        Create a query to retrieve unique vehicle IDs from the index.
+
+        Args:
+            after_key (optional[dict]): The pagination key for aggregations.
+
+        Returns:
+            dict: The OpenSearch query.
+        """
+        query: dict[str, Any] = {
+            "size": 0,
+            "aggs": {
+                "unique_vehicle_ids": {
+                    "composite": {
+                        "sources": [
+                            {"vehicle_id": {"terms": {"field": "vehicle_id"}}}
+                        ],
+                        "size": 10000,
+                    }
+                }
+            },
+        }
+        if after_key:
+            query["aggs"]["unique_vehicle_ids"]["composite"][
+                "after"
+            ] = after_key
+        return query
+
+    def get_unique_vehicle_ids(
+        self: DriveSessionVehicleUtilityVar,
+    ) -> list[str]:
+        """
+        Execute query to get all unique vehicle IDs from the index.
+
+        Returns:
+            list[str]: A list of unique vehicle IDs.
+        """
+        vehicle_ids: list = []
+        after_key = None
+
+        if client.indices.exists(index=self.index_name):
+            while True:
+                query = self.create_vehicle_id_query(after_key)
+                response = client.search(index=self.index_name, body=query)
+                buckets = response["aggregations"]["unique_vehicle_ids"][
+                    "buckets"
+                ]
+                vehicle_ids.extend(
+                    bucket["key"]["vehicle_id"] for bucket in buckets
+                )
+                after_key = response["aggregations"]["unique_vehicle_ids"].get(
+                    "after_key"
+                )
+                if not after_key:
+                    break
+            return vehicle_ids
+        return vehicle_ids
+
+    def get_unique_vehicle_ids_all_status(
+        self: DriveSessionVehicleUtilityVar,
+    ) -> list[str]:
+        """
+        Execute query to get all unique vehicle IDs from the index.
+
+        Returns:
+            list[str]: A list of unique vehicle IDs.
+        """
+        vehicle_ids: list = []
+        after_key = None
+
+        if client.indices.exists(index=self.index_name):
+            while True:
+                query = self.create_vehicle_id_query_all_status(after_key)
+                response = client.search(index=self.index_name, body=query)
+                buckets = response["aggregations"]["unique_vehicle_ids"][
+                    "buckets"
+                ]
+                vehicle_ids.extend(
+                    bucket["key"]["vehicle_id"] for bucket in buckets
+                )
+                after_key = response["aggregations"]["unique_vehicle_ids"].get(
+                    "after_key"
+                )
+                if not after_key:
+                    break
+            return vehicle_ids
+        return vehicle_ids
 
 
-{
- "bucket_name": {
-  "S": "tftpl-testprod-raw-bucket"
- },
- "project_name": {
-  "S": "testprod"
- },
- "bucket_arn": {
-  "S": "arn:aws:s3:::tftpl-testprod-raw-bucket"
- },
- "company_name": {
-  "S": "Honda"
- },
- "country_code": {
-  "S": "EU"
- },
- "country_name": {
-  "S": "Europe"
- },
- "drive_session_table_name": {
-  "S": "testprod-drive-data"
- },
- "event_session_table_name": {
-  "S": "testprod-event-data"
- },
- "generation_name": {
-  "S": "3.0"
- },
- "input_bucket_name": {
-  "S": "adcp-test-input"
- },
- "input_bucket_region": {
-  "S": "us-east-2"
- },
- "merged_bucket_name": {
-  "S": "tftpl-testprod-merge-bucket"
- },
- "metadata_table_name": {
-  "S": "testprod-metadata-table"
- },
- "model_name": {
-  "S": "Model-10"
- },
- "organization_name": {
-  "S": "AS4"
- },
- "parquet_bucket_name": {
-  "S": "tftpl-testprod-parquet-bucket"
- },
- "pid": {
-  "S": "7c7cfb4e-e0d1-8ad4-95b3-0efb4851"
- },
- "prefix": {
-  "S": "tftpl"
- },
- "raw_bucket_name": {
-  "S": "tftpl-testprod-raw-bucket"
- },
- "region": {
-  "S": "ap-northeast-1"
- },
- "ros_bucket_name": {
-  "S": "tftpl-testprod-rosbag-bucket"
- },
- "suffix": {
-  "S": "raw-bucket"
- }
-}
+I got the review comment see below,
 
-so there are number of items would be in future.
+This method does the same as the above one without the status filter. Please merge the two methods to just one and keep the code DRY (Dont Repeat Yourself)
 
-So currently what we are doing we are fetching the drive_session_table_name using project_name with scan operation
-so see below scan call.
-
-
-lookup_response = lookup_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-                project_name
-            )
-        )
-
-but now we have to add pagination for this query.
-so we have added like this
-
-
-        while lookup_response.get("LastEvaluatedKey"):
-            response = lookup_table.scan(
-                FilterExpression=boto3.dynamodb.conditions.
-                Attr('project_name').eq(project_name),
-                ExclusiveStartKey=response["LastEvaluatedKey"],
-            )
-            if response.get("Items"):
-               lookup_response.extend(response.get("Items"))
-
-        items = lookup_response.get('Items', [])
-		
-please let me know is that correct pagination we have implemented.
+Is it possible to merge give me the updated code and if not give me the exact reason?
