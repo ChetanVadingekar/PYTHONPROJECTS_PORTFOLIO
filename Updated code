@@ -99,9 +99,179 @@ def list_event_session_filters() -> ResponseReturnValue:
         logging.exception(f"An error occurred: {str(e)}")
         return jsonify({"message": str(e)}), 500
 
+@drivesession_blueprint.route('/api/v1/driveSessions/filters', methods=['GET'])
+@cognito_auth_required
+@authorization_required(perms={"list:driveSessionsFilters"})
+def list_drive_session_filters() -> ResponseReturnValue:
+    """
+    Fetch filter options for filtering DriveSessions entries.
+
+    Returns:
+        (ResponseReturnValue): filter options list and status code.
+    """
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        project_name = request.args.get('project_name')
+
+        if not (page and filter_level and project_name):
+            raise ValueError("Missing query params in the request")
+
+        lookup_response = lookup_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
+                project_name
+            )
+        )
+        items = lookup_response.get('Items', [])
+        while 'LastEvaluatedKey' in lookup_response:
+            lookup_response = lookup_table.scan(
+                FilterExpression=boto3.dynamodb.conditions.Attr(
+                    'project_name'
+                ).eq(project_name),
+                ExclusiveStartKey=lookup_response['LastEvaluatedKey'],
+            )
+            items.extend(lookup_response.get('Items', []))
+
+        if not items:
+            raise ValueError("Project not found")
+
+        drive_session_index_name = items[0].get("drive_session_table_name")
+
+        if not drive_session_index_name:
+            raise ValueError("Drive session table name not found")
+
+        filter_response = filter_attributes_table.get_item(
+            Key={'page': page, 'filter_level': filter_level}
+        )
+        if 'Item' not in filter_response:
+            raise KeyError("Filter attributes not found")
+
+        response = filter_response['Item']['attributes']
+        final_response = append_vehicle_ids(
+            response,
+            drive_session_index_name,
+            filter_key="current_status",
+            filter_value="Completed",
+        )
+        logging.info(
+            f"dynamoDB response for fetching filter "
+            f"attributes: {final_response}"
+        )
+        return (
+            jsonify(final_response),
+            200,
+        )
+    except ValueError as e:
+        logging.error(f"Validation Error: {str(e)}")
+        return (
+            jsonify({'message': str(e)}),
+            404,
+        )
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return (
+            jsonify({'message': str(e)}),
+            404,
+        )
+    except botocore.exceptions.ClientError as e:
+        logging.error(f"DynamoDB ClientError: {str(e)}")
+        return (
+            jsonify({'message': "An error occured while querying DynamoDB"}),
+            500,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
+
+
+@drivesession_blueprint.route(
+    '/api/v1/driveSessions/status/filters', methods=['GET']
+)
+@cognito_auth_required
+@authorization_required(perms={"list:driveSessionsStatusFilters"})
+def list_drive_session_status_filters() -> ResponseReturnValue:
+    """
+    Fetch filter options for filtering DriveSessionStatus entries.
+
+    Returns:
+        (ResponseReturnValue): filter options list and status code.
+    """
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        project_name = request.args.get('project_name')
+
+        if not (page and filter_level and project_name):
+            raise ValueError("Missing query params in the request")
+
+        lookup_response = lookup_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
+                project_name
+            )
+        )
+
+        items = lookup_response.get('Items', [])
+        while 'LastEvaluatedKey' in lookup_response:
+            lookup_response = lookup_table.scan(
+                FilterExpression=boto3.dynamodb.conditions.Attr(
+                    'project_name'
+                ).eq(project_name),
+                ExclusiveStartKey=lookup_response['LastEvaluatedKey'],
+            )
+            items.extend(lookup_response.get('Items', []))
+
+        if not items:
+            raise ValueError("Project not found")
+
+        drive_session_index_name = items[0].get("drive_session_table_name")
+
+        if not drive_session_index_name:
+            raise ValueError("Drive session table name not found")
+
+        filter_response = filter_attributes_table.get_item(
+            Key={'page': page, 'filter_level': filter_level}
+        )
+
+        if 'Item' not in filter_response:
+            raise KeyError("Filter attributes not found")
+
+        response = filter_response['Item']['attributes']
+
+        final_response = append_vehicle_ids(response, drive_session_index_name)
+        logging.info(
+            f"dynamoDB response for fetching filter "
+            f"attributes: {final_response}"
+        )
+        return (
+            jsonify(final_response),
+            200,
+        )
+    except ValueError as e:
+        logging.error(f"Validation Error: {str(e)}")
+        return (
+            jsonify({'message': str(e)}),
+            404,
+        )
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return (
+            jsonify({'message': str(e)}),
+            404,
+        )
+    except botocore.exceptions.ClientError as e:
+        logging.error(f"DynamoDB ClientError: {str(e)}")
+        return (
+            jsonify({'message': "An error occured while querying DynamoDB"}),
+            500,
+        )
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
 
 For this API I am getting static code error see below, 
 
 dashboard/backend/eventsession/routes.py:29:1: C901 'list_event_session_filters' is too complex (12)
+dashboard/backend/drivesession/routes.py:29:1: C901 'list_drive_session_filters' is too complex (11)
+dashboard/backend/drivesession/routes.py:116:1: C901 'list_drive_session_status_filters' is too complex (11)
 
 please resolve it. 
