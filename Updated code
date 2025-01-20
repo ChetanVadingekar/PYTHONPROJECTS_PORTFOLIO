@@ -3,7 +3,7 @@
 @authorization_required(perms={"list:eventSessionsFilters"})
 def list_event_session_filters() -> ResponseReturnValue:
     """
-    Fetch filter options for filtering EventSession entries
+    Fetch filter options for filtering EventSession entries.
 
     Returns:
         (ResponseReturnValue): filter options list and status code.
@@ -13,32 +13,36 @@ def list_event_session_filters() -> ResponseReturnValue:
         filter_level = request.args.get('filter_level')
         project_name = request.args.get('project_name')
         generation = request.args.get('generation')
+
+        if not (page and filter_level and project_name and generation):
+            raise ValueError("Missing query params in the request")
+
+        generation = f"{float(generation):0.1f}"
+
         lookup_response = lookup_table.scan(
             FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
                 project_name
             )
         )
 
-        items = lookup_response['Items']
+        items = lookup_response.get('Items', [])
         while 'LastEvaluatedKey' in lookup_response:
             lookup_response = lookup_table.scan(
-                FilterExpression=boto3.dynamodb.conditions.
-                Attr('project_name').eq(project_name),
+                FilterExpression=boto3.dynamodb.conditions.Attr(
+                    'project_name'
+                ).eq(project_name),
                 ExclusiveStartKey=lookup_response['LastEvaluatedKey'],
             )
-            items.extend(lookup_response['Items'])
+            items.extend(lookup_response.get('Items', []))
 
         if not items:
             raise ValueError("Project not found")
-        
-        for item in items:
-            event_session_index_name = (
-                item.get("event_session_table_name", "")
-            )
+
+        event_session_index_name = items[0].get("event_session_table_name")
 
         if not event_session_index_name:
             raise ValueError("Event session table name not found")
-        
+
         filter_response = filter_attributes_table.get_item(
             Key={'page': page, 'filter_level': filter_level}
         )
@@ -46,29 +50,31 @@ def list_event_session_filters() -> ResponseReturnValue:
         if 'Item' not in filter_response:
             raise KeyError("Filter attributes not found")
 
-        if generation is not None and generation.isdigit():
-            generation = str(float(generation))
-        
         common_attributes = filter_response['Item']['common_attributes']
+
+        if f'gen_attributes_{generation}' not in filter_response['Item']:
+            raise KeyError("Filter attributes not found")
+
         gen_attributes = filter_response['Item'][
             f'gen_attributes_{generation}'
         ]
+
         response = {
-            **common_attributes,  # type: ignore
-            **gen_attributes,  # type: ignore
+            **common_attributes,
+            **gen_attributes,
         }
         final_response = append_vehicle_ids(
-            response, 
+            response,
             event_session_index_name,
-            filter_key= "split_status",
-            filter_value= "SUCCESS"   
+            filter_key="split_status",
+            filter_value="SUCCESS",
         )
         logging.info(
             f"dynamoDB response for fetching filter "
             f"attributes: {final_response}"
         )
         return (
-            jsonify(final_response),  # type: ignore
+            jsonify(final_response),
             200,
         )
     except ValueError as e:
@@ -94,12 +100,8 @@ def list_event_session_filters() -> ResponseReturnValue:
         return jsonify({"message": str(e)}), 500
 
 
-I got this review comment see below,
+For this API I am getting static code error see below, 
 
-Please check two cases here:
-a. Raise error if generation is None
-b. Raise error if generation is not type castable to float
-Move this check on the top when to assign the request parameters. That way we can avoid scanning lookup table if the input itslef is wrong.
+dashboard/backend/eventsession/routes.py:29:1: C901 'list_event_session_filters' is too complex (12)
 
-
-please update the code 
+please resolve it. 
