@@ -1,162 +1,27 @@
-@eventsession_blueprint.route('/api/v1/eventSessions/filters', methods=['GET'])
-@cognito_auth_required
-@authorization_required(perms={"list:eventSessionsFilters"})
-def list_event_session_filters() -> ResponseReturnValue:
+reference test case
+
+def test_format_project_details_with_valid_rec_year_month_date():
     """
-    Fetch filter options for filtering EventSession entries.
 
-    Returns:
-        (ResponseReturnValue): filter options list and status code.
+    Test case for when 'rec_year_month_date' is a valid date string and needs to be formatted.
+
     """
-    try:
-        params = validate_query_params(
-            ['page', 'filter_level', 'project_name', 'generation']
-        )
-        
-        generation = f"{float(params['generation']):0.1f}"        
+    from utility import format_project_details
+    projects = [{
+        "project_name": "Test Project",
+        "country_code": "JP",
+        "generation_name": "1.0",
+        "model_name": "ADAS",
+        "drive_session_table_name": "test-drive-session-table"
+    }]
 
-        event_session_index_name = fetch_project_name_table(
-            params['project_name'], "event_session_table_name"
-        )
+    with patch("opensearch_utility.DriveSessionUtility.get_rec_year_month_date") as mock_get_rec_date:
+        mock_get_rec_date.return_value = "20240814"
+        result = format_project_details(projects)
+        rec_year_month_date = result[0]['projects'][0]['rec_year_month_date']
+        expected_date = "2024-08-14"
+        assert rec_year_month_date == expected_date
+        assert result[0]['projects'][0]['project_name'] == "Test Project"
+        assert result[0]['projects'][0]['version'] == "Gen1.0 ADAS"
 
-        filter_attributes = fetch_filter_attributes(
-            params['page'], params['filter_level']
-        )
-
-        common_attributes = filter_attributes['common_attributes']
-        gen_key = f'gen_attributes_{generation}'
-        if gen_key not in filter_attributes:
-            raise KeyError("Filter attributes not found")
-        gen_attributes = filter_attributes[gen_key]
-
-        response = {**common_attributes, **gen_attributes}
-        final_response = append_vehicle_ids(
-            response,
-            event_session_index_name,
-            filter_key="split_status",
-            filter_value="SUCCESS",
-        )
-        logging.info(
-            f"dynamoDB response for fetching filter "
-            f"attributes: {final_response}"
-        )
-        return (
-            jsonify(final_response),
-            200,
-        )
-    except ValueError as e:
-        err_msg = "could not convert string to float"
-        if err_msg in str(e):
-            logging.error(f"Type Error: {e}")
-            return (
-                jsonify({'message': "FOT generation is incorrect"}),
-                400,
-            )
-        logging.error(f"Validation Error: {str(e)}")
-        return (
-            jsonify({'message': str(e)}),
-            400,
-        )
-    except KeyError as e:
-        error_message = str(e).strip('\'"')
-        logging.error(f"KeyError occurred: {error_message}")
-        return (
-            jsonify({'message': error_message}),
-            404,
-        )
-    except botocore.exceptions.ClientError as e:
-        logging.error(f"DynamoDB ClientError: {str(e)}")
-        return (
-            jsonify({'message': "An error occured while querying DynamoDB"}),
-            500,
-        )
-    except Exception as e:
-        logging.exception(f"An error occurred: {str(e)}")
-        return jsonify({"message": str(e)}), 500
-
-
-def validate_query_params(required_params: list) -> dict:
-    """
-    Validate query parameters and return them if valid.
-
-    Args:
-        required_params (list): List of required query parameter names.
-
-    Returns:
-        dict: Dictionary of query parameter values.
-
-    Raises:
-        ValueError: If any required parameter is missing.
-    """
-    params = {param: request.args.get(param) for param in required_params}
-    if not all(params.values()):
-        raise ValueError("Missing query params in the request")
-    return params
-
-
-def fetch_project_name_table(project_name: str, table_key: str) -> str:
-    """
-    Fetch the corresponding table name for a project.
-
-    Args:
-        project_name (str): The project name.
-        table_key (str): The key in the lookup table.
-
-    Returns:
-        str: Table name for the project.
-
-    Raises:
-        KeyError: If the project or table name is not found.
-    """
-    lookup_response = lookup_table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-            project_name
-        )
-    )
-    items = lookup_response.get('Items', [])
-    while 'LastEvaluatedKey' in lookup_response:
-        lookup_response = lookup_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-                project_name
-            ),
-            ExclusiveStartKey=lookup_response['LastEvaluatedKey'],
-        )
-        items.extend(lookup_response.get('Items', []))
-
-    if not items:
-        raise KeyError("Project not found")
-
-    table_name = items[0].get(table_key)
-    table_key_name = table_key.replace("_", " ").capitalize()
-    if not table_name:
-        raise KeyError(f"{table_key_name} not found in lookup table")
-    return table_name
-
-
-def fetch_filter_attributes(page: str, filter_level: str) -> dict:
-    """
-    Fetch filter attributes from the filter attributes table.
-
-    Args:
-        page (str): Page parameter.
-        filter_level (str): Filter level parameter.
-
-    Returns:
-        dict: Filter attributes.
-
-    Raises:
-        KeyError: If attributes are not found in the table.
-    """
-    filter_response = filter_attributes_table.get_item(
-        Key={'page': page, 'filter_level': filter_level}
-    )
-    if 'Item' not in filter_response:
-        raise KeyError("Filter attributes not found")
-    return filter_response['Item']
-
-
-I want to write a test case for this functions
-validate_query_params
-fetch_project_name_table
-fetch_filter_attributes
-
+so usually we write test case like this.
