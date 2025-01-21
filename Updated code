@@ -1,137 +1,181 @@
-Got it! Based on your reference test case style, here are updated test cases for the functions validate_query_params, fetch_project_name_table, and fetch_filter_attributes that align with the structure you provided:
+SAMPLE_FILTER_DATA_V2 = {
+   "page": "event_sessions",
+   "filter_level": "L3",
+   "common_attributes": {
+      "date_time_range": {
+         "component": "DateTimeRange",
+         "db_fields": [
+            "start_time",
+            "stop_time"
+         ],
+         "type": "range"
+      },
+      "event_name": {
+         "component": "Text",
+         "props": {
+            "label": "event_name",
+            "variant": "outlined"
+         },
+         "type": "text"
+      },
+      "folder_name": {
+         "component": "Text",
+         "props": {
+            "label": "folder_name",
+            "variant": "outlined"
+         },
+         "type": "text"
+      },
+      "vehicle_id": {
+         "component": "Selection",
+         "props": {
+            "dropdown_name": "vehicle_id",
+            "dropdown_values": [],
+            "label": "vehicle_id",
+            "values": [],
+            "variant": "outlined",
+            "visibility": "true"
+         },
+         "type": "text"
+      }
+   },
+   "gen_attributes_1.0": {
+      "day_time": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "pie",
+            "color_mapping": {
+               "dawn": "#f03775",
+               "day": "#add8e6",
+               "dusk": "#191970",
+               "night": "#391a59"
+            },
+            "dropdown_name": "Day Time",
+            "dropdown_values": [
+               "day",
+               "dawn",
+               "dusk",
+               "night"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      },
+      "object_classification": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "bar",
+            "color_mapping": {
+               "default": "#d4d4d4"
+            },
+            "dropdown_name": "Object Classification",
+            "dropdown_values": [
+               "pedestrian",
+               "bicycle",
+               "animal",
+               "small car",
+               "passenger car",
+               "motorbike",
+               "long vehicles (>8m)",
+               "special vehicle"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      }
+   },
+   "gen_attributes_3.0": {
+      "day_time": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "pie",
+            "color_mapping": {
+               "day": "#add8e6",
+               "dusk/dawn": "#f03775",
+               "night": "#191970"
+            },
+            "dropdown_name": "Day Time",
+            "dropdown_values": [
+               "day",
+               "dusk/dawn",
+               "night"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      },
+      "heavy_sun_glaring": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "pie",
+            "color_mapping": {
+               "heavy": "#b8860b",
+               "light": "#75ffe3",
+               "none": "#d6c9cd"
+            },
+            "dropdown_name": "Sun Glaring",
+            "dropdown_values": [
+               "none",
+               "light",
+               "heavy"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      },
+      "lane_features": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "bar",
+            "color_mapping": {
+               "default": "#d4d4d4"
+            },
+            "dropdown_name": "Lane Features",
+            "dropdown_values": [
+               "long slope",
+               "road merging",
+               "sa/pa",
+               "ramp/jct/ic",
+               "another lane(parallel/overlap)",
+               "roundabout",
+               "stacked roads",
+               "crossroad/intersection",
+               "ramp fork",
+               "slight angle",
+               "reversible lane/zipper lane",
+               "underpass",
+               "curve sign w/reduce speed",
+               "concrete lane/cobblestone",
+               "carpool lane"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      }
+   }
+}
 
-Test Case for validate_query_params
 
-def test_validate_query_params_with_valid_params():
-    """
-    Test case for when all required query parameters are provided and valid.
-    """
-    from flask import request
-    with patch("flask.request") as mock_request:
-        mock_request.args = {
-            "param1": "value1",
-            "param2": "value2",
-        }
-        required_params = ["param1", "param2"]
-        result = validate_query_params(required_params)
-        assert result == {
-            "param1": "value1",
-            "param2": "value2",
-        }
-
-
-def test_validate_query_params_with_missing_params():
-    """
-    Test case for when required query parameters are missing.
-    """
-    from flask import request
-    with patch("flask.request") as mock_request:
-        mock_request.args = {
-            "param1": "value1",
-        }
-        required_params = ["param1", "param2"]
-        with pytest.raises(ValueError) as exc_info:
-            validate_query_params(required_params)
-        assert str(exc_info.value) == "Missing query params in the request"
-
-Test Case for fetch_project_name_table
-
-def test_fetch_project_name_table_with_valid_project():
-    """
-    Test case for when the project and table key are valid and found.
-    """
-    with patch("boto3.resource") as mock_boto3_resource:
-        mock_table = MagicMock()
-        mock_boto3_resource.return_value.Table.return_value = mock_table
-        mock_table.scan.side_effect = [
-            {
-                "Items": [
-                    {
-                        "project_name": "Test Project",
-                        "event_session_table_name": "test_event_session_table",
-                    }
-                ]
-            }
-        ]
-        result = fetch_project_name_table("Test Project", "event_session_table_name")
-        assert result == "test_event_session_table"
-
-
-def test_fetch_project_name_table_with_missing_project():
-    """
-    Test case for when the project is not found in the lookup table.
-    """
-    with patch("boto3.resource") as mock_boto3_resource:
-        mock_table = MagicMock()
-        mock_boto3_resource.return_value.Table.return_value = mock_table
-        mock_table.scan.side_effect = [{"Items": []}]
-        with pytest.raises(KeyError) as exc_info:
-            fetch_project_name_table("Non Existent Project", "event_session_table_name")
-        assert str(exc_info.value) == "'Project not found'"
-
-
-def test_fetch_project_name_table_with_missing_table_key():
-    """
-    Test case for when the table key is not found in the project data.
-    """
-    with patch("boto3.resource") as mock_boto3_resource:
-        mock_table = MagicMock()
-        mock_boto3_resource.return_value.Table.return_value = mock_table
-        mock_table.scan.side_effect = [
-            {
-                "Items": [
-                    {
-                        "project_name": "Test Project",
-                    }
-                ]
-            }
-        ]
-        with pytest.raises(KeyError) as exc_info:
-            fetch_project_name_table("Test Project", "event_session_table_name")
-        assert str(exc_info.value) == "'Event session table name not found in lookup table'"
-
-Test Case for fetch_filter_attributes
-
-def test_fetch_filter_attributes_with_valid_data():
+def test_fetch_filter_attributes_with_valid_event_filter_data():
     """
     Test case for when the filter attributes are found and valid.
     """
-    with patch("boto3.resource") as mock_boto3_resource:
-        mock_table = MagicMock()
-        mock_boto3_resource.return_value.Table.return_value = mock_table
+    from utility import fetch_filter_attributes
+    with patch("utility.filter_attributes_table.get_item") as mock_table:
         mock_table.get_item.return_value = {
-            "Item": {
-                "page": "test_page",
-                "filter_level": "test_level",
-                "key": "value",
+                "Item": SAMPLE_FILTER_DATA_V2
             }
-        }
-        result = fetch_filter_attributes("test_page", "test_level")
-        assert result == {
-            "page": "test_page",
-            "filter_level": "test_level",
-            "key": "value",
-        }
+    
+        result = fetch_filter_attributes("event_sessions", "L3")
+        print(f"Results: {result}")
+        assert result == SAMPLE_FILTER_DATA_V2
 
 
-def test_fetch_filter_attributes_with_missing_data():
-    """
-    Test case for when the filter attributes are not found in the table.
-    """
-    with patch("boto3.resource") as mock_boto3_resource:
-        mock_table = MagicMock()
-        mock_boto3_resource.return_value.Table.return_value = mock_table
-        mock_table.get_item.return_value = {}
-        with pytest.raises(KeyError) as exc_info:
-            fetch_filter_attributes("test_page", "test_level")
-        assert str(exc_info.value) == "'Filter attributes not found'"
+This test case is failing 
 
-Key Points:
-	1.	patch usage: flask.request and boto3.resource are patched as needed.
-	2.	Consistency: The test structure matches your style:
-	•	Clear docstrings for each test case.
-	•	Use of patch and MagicMock for mocking external dependencies.
-	•	Validation of results and exceptions with assert.
-	3.	Exceptions: Tests include scenarios for both successful and failing cases.
-
-Let me know if you’d like further improvements!
+FAILED tests/test_utility.py::test_fetch_filter_attributes_with_valid_event_filter_data - KeyError: 'Filter attributes not found'
