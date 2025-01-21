@@ -1,27 +1,137 @@
-reference test case
+Got it! Based on your reference test case style, here are updated test cases for the functions validate_query_params, fetch_project_name_table, and fetch_filter_attributes that align with the structure you provided:
 
-def test_format_project_details_with_valid_rec_year_month_date():
+Test Case for validate_query_params
+
+def test_validate_query_params_with_valid_params():
     """
-
-    Test case for when 'rec_year_month_date' is a valid date string and needs to be formatted.
-
+    Test case for when all required query parameters are provided and valid.
     """
-    from utility import format_project_details
-    projects = [{
-        "project_name": "Test Project",
-        "country_code": "JP",
-        "generation_name": "1.0",
-        "model_name": "ADAS",
-        "drive_session_table_name": "test-drive-session-table"
-    }]
+    from flask import request
+    with patch("flask.request") as mock_request:
+        mock_request.args = {
+            "param1": "value1",
+            "param2": "value2",
+        }
+        required_params = ["param1", "param2"]
+        result = validate_query_params(required_params)
+        assert result == {
+            "param1": "value1",
+            "param2": "value2",
+        }
 
-    with patch("opensearch_utility.DriveSessionUtility.get_rec_year_month_date") as mock_get_rec_date:
-        mock_get_rec_date.return_value = "20240814"
-        result = format_project_details(projects)
-        rec_year_month_date = result[0]['projects'][0]['rec_year_month_date']
-        expected_date = "2024-08-14"
-        assert rec_year_month_date == expected_date
-        assert result[0]['projects'][0]['project_name'] == "Test Project"
-        assert result[0]['projects'][0]['version'] == "Gen1.0 ADAS"
 
-so usually we write test case like this.
+def test_validate_query_params_with_missing_params():
+    """
+    Test case for when required query parameters are missing.
+    """
+    from flask import request
+    with patch("flask.request") as mock_request:
+        mock_request.args = {
+            "param1": "value1",
+        }
+        required_params = ["param1", "param2"]
+        with pytest.raises(ValueError) as exc_info:
+            validate_query_params(required_params)
+        assert str(exc_info.value) == "Missing query params in the request"
+
+Test Case for fetch_project_name_table
+
+def test_fetch_project_name_table_with_valid_project():
+    """
+    Test case for when the project and table key are valid and found.
+    """
+    with patch("boto3.resource") as mock_boto3_resource:
+        mock_table = MagicMock()
+        mock_boto3_resource.return_value.Table.return_value = mock_table
+        mock_table.scan.side_effect = [
+            {
+                "Items": [
+                    {
+                        "project_name": "Test Project",
+                        "event_session_table_name": "test_event_session_table",
+                    }
+                ]
+            }
+        ]
+        result = fetch_project_name_table("Test Project", "event_session_table_name")
+        assert result == "test_event_session_table"
+
+
+def test_fetch_project_name_table_with_missing_project():
+    """
+    Test case for when the project is not found in the lookup table.
+    """
+    with patch("boto3.resource") as mock_boto3_resource:
+        mock_table = MagicMock()
+        mock_boto3_resource.return_value.Table.return_value = mock_table
+        mock_table.scan.side_effect = [{"Items": []}]
+        with pytest.raises(KeyError) as exc_info:
+            fetch_project_name_table("Non Existent Project", "event_session_table_name")
+        assert str(exc_info.value) == "'Project not found'"
+
+
+def test_fetch_project_name_table_with_missing_table_key():
+    """
+    Test case for when the table key is not found in the project data.
+    """
+    with patch("boto3.resource") as mock_boto3_resource:
+        mock_table = MagicMock()
+        mock_boto3_resource.return_value.Table.return_value = mock_table
+        mock_table.scan.side_effect = [
+            {
+                "Items": [
+                    {
+                        "project_name": "Test Project",
+                    }
+                ]
+            }
+        ]
+        with pytest.raises(KeyError) as exc_info:
+            fetch_project_name_table("Test Project", "event_session_table_name")
+        assert str(exc_info.value) == "'Event session table name not found in lookup table'"
+
+Test Case for fetch_filter_attributes
+
+def test_fetch_filter_attributes_with_valid_data():
+    """
+    Test case for when the filter attributes are found and valid.
+    """
+    with patch("boto3.resource") as mock_boto3_resource:
+        mock_table = MagicMock()
+        mock_boto3_resource.return_value.Table.return_value = mock_table
+        mock_table.get_item.return_value = {
+            "Item": {
+                "page": "test_page",
+                "filter_level": "test_level",
+                "key": "value",
+            }
+        }
+        result = fetch_filter_attributes("test_page", "test_level")
+        assert result == {
+            "page": "test_page",
+            "filter_level": "test_level",
+            "key": "value",
+        }
+
+
+def test_fetch_filter_attributes_with_missing_data():
+    """
+    Test case for when the filter attributes are not found in the table.
+    """
+    with patch("boto3.resource") as mock_boto3_resource:
+        mock_table = MagicMock()
+        mock_boto3_resource.return_value.Table.return_value = mock_table
+        mock_table.get_item.return_value = {}
+        with pytest.raises(KeyError) as exc_info:
+            fetch_filter_attributes("test_page", "test_level")
+        assert str(exc_info.value) == "'Filter attributes not found'"
+
+Key Points:
+	1.	patch usage: flask.request and boto3.resource are patched as needed.
+	2.	Consistency: The test structure matches your style:
+	•	Clear docstrings for each test case.
+	•	Use of patch and MagicMock for mocking external dependencies.
+	•	Validation of results and exceptions with assert.
+	3.	Exceptions: Tests include scenarios for both successful and failing cases.
+
+Let me know if you’d like further improvements!
