@@ -19,61 +19,24 @@ def fetch_filter_attributes(page: str, filter_level: str) -> dict:
         raise KeyError("Filter attributes not found")
     return filter_response['Item']
 
-I have this function and want to write test cases
+i have this function and i have written test case
 
-@pytest.fixture(scope="function")
-def dynamodb_resource(aws_credentials):
-    """Creates a boto3 dynamodb resource."""
-    with mock_aws():
-        resource = boto3.resource("dynamodb", region_name="ap-northeast-1")
-        yield resource
+def test_fetch_filter_attributes_with_valid_event_session_filters(ddb_resource):
+    """
+    Test case for when the Event filter attributes are found and valid.
+    """
+    from utility import fetch_filter_attributes
+    create_filter_attribute_table(ddb_resource)
+    filter_table = ddb_resource.Table(FILTER_ATTRIBUTES_TABLE_NAME)
+    insert_items_into_filter_attributes_table(filter_table,SAMPLE_FILTER_DATA_V2,"1.0")
 
-def create_filter_attribute_table(ddb_resource):
-    """Create DynamoDB filter attribute Table"""
-    ddb_resource.create_table(
-        AttributeDefinitions=[
-            {
-                "AttributeName": "page",
-                "AttributeType": "S"
-            },
-            {
-                "AttributeName": "filter_level",
-                "AttributeType": "S"
-            }
-        ],
-        TableName=FILTER_ATTRIBUTES_TABLE_NAME,
-        KeySchema=[
-            {
-                "AttributeName": "page",
-                "KeyType": "HASH"
-            },
-            {
-                "AttributeName": "filter_level",
-                "KeyType": "RANGE"
-            }
-        ],
-        BillingMode="PAY_PER_REQUEST"
-    )
+    with patch("utility.filter_attributes_table", filter_table):
+        result = fetch_filter_attributes("event_sessions", "L3")
+        print(f"Result: {result}")
+        assert result == SAMPLE_FILTER_DATA_V2
 
+but i am getting this error 
 
-def insert_items_into_filter_attributes_table(table, data, generation):
-    table.put_item(
-        Item={
-            'page': PAGE,
-            'filter_level': FILTER_LEVEL,
-            'common_attributes': data['common_attributes'],
-            f'gen_attributes_{generation}': data[f'gen_attributes_{generation}']
-        }
-    )
+FAILED tests/test_utility.py::test_fetch_filter_attributes_with_valid_event_session_filters - KeyError: 'Filter attributes not found'
 
-
-def insert_items_into_filter_attribute_drivesession_table(table, data):
-    table.put_item(
-        Item={
-            'page': PAGE,
-            'filter_level': FILTER_LEVEL,
-            'attributes': data['attributes']
-        }
-    )
-
-
+how to fix this? update the test case 
