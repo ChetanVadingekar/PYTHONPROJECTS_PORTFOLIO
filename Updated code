@@ -1,153 +1,49 @@
-def fetch_project_name_table(project_name: str, table_key: str) -> str:
+def test_fetch_project_name_table_with_pagination():
     """
-    Fetch the corresponding table name for a project.
-
-    Args:
-        project_name (str): The project name.
-        table_key (str): The key in the lookup table.
-
-    Returns:
-        str: Table name for the project.
-
-    Raises:
-        KeyError: If the project or table name is not found.
+    Test case for handling pagination in the lookup table scan.
     """
-    lookup_response = lookup_table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-            project_name
-        )
-    )
-    items = lookup_response.get('Items', [])
-    while 'LastEvaluatedKey' in lookup_response:
-        lookup_response = lookup_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-                project_name
-            ),
-            ExclusiveStartKey=lookup_response['LastEvaluatedKey'],
-        )
-        items.extend(lookup_response.get('Items', []))
-    if not items:
-        raise KeyError("Project not found")
-
-    table_name = items[0].get(table_key)
-    table_key_name = table_key.replace("_", " ").capitalize()
-    if not table_name:
-        raise KeyError(f"{table_key_name} not found in lookup table")
-    return table_name
-
-I have this function and i am writing test case for this function see below 
-
-lookup_data = [
-    {
-        "bucket_name": "vsm-project-name-raw-bucket",
-        "project_name": "project-name-3",
-        "bucket_arn": "arn:aws:s3:::vsm-project-name-raw-bucket",
-        "company_name": "honda",
-        "country_code": "jp",
-        "country_name": "japan",
-        "drive_session_table_name": "dmp-projectname-drive-data",
-        "event_session_table_name": "dmp-dynamodb-event-table",
-        "generation_name": "generation 1.1",
-        "merged_bucket_name": "vsm-project-name-merged-bucket",
-        "model_name": "model_10",
-        "organization_name": "as4",
-        "parquet_bucket_name": "vsm-project-name-parquet-bucket",
-        "pid": "a3197b70-df08-4344-850a-3b23890e8c0c",
-        "prefix": "vsm",
-        "raw_bucket_name": "vsm-project-name-raw-bucket",
-        "region": "ap-northeast-1",
-        "ros_bucket_name": "vsm-project-name-ros-bucket",
-        "s3_access_role_arn": "AWSDataSyncS3Role_vsm-project-name-raw-bucket",
-        "suffix": "raw-bucket",
-        "metadata_table_name": "test-metadata-table"
-    },
-    {
-        "bucket_name": "testprefix-project-name-raw-bucket",
-        "project_name": "project-name",
-        "bucket_arn": "arn:aws:s3:::testprefix-project-name-raw-bucket",
-        "company_name": "honda",
-        "country_code": "jp",
-        "country_name": "japan",
-        "drive_session_table_name": "dmp-projectname-drive-data",
-        "event_session_table_name": "dmp-dynamodb-event-table",
-        "generation_name": "1.1",
-        "merged_bucket_name": "testprefix-project-name-merged-bucket",
-        "model_name": "EADAS",
-        "organization_name": "as4",
-        "parquet_bucket_name": "testprefix-project-name-parquet-bucket",
-        "pid": "a3197b70-df08-4344-850a-3b23890e8c0c",
-        "prefix": "testprefix",
-        "raw_bucket_name": "testprefix-project-name-raw-bucket",
-        "region": "ap-northeast-1",
-        "ros_bucket_name": "testprefix-project-name-ros-bucket",
-        "s3_access_role_arn": "AWSDataSyncS3Role_testprefix-project-name-raw-bucket",
-        "suffix": "raw-bucket"
-    }
-]
-
-@pytest.fixture(scope="function")
-def ddb_resource(aws_credentials):
-    """Creates a boto3 dynamoDB resource."""
-    with mock_aws():
-        ddb_resource = boto3.resource("dynamodb", region_name="ap-northeast-1")
-        yield ddb_resource
-
-def create_lookup_table(resource):
-    """Create lookup table."""
-    resource.create_table(
-        TableName=LOOKUP_TABLE_NAME,
-        KeySchema=[
+    from utility import fetch_project_name_table
+    with patch("utility.lookup_table.scan") as mock_table:
+        mock_table.side_effect = [
             {
-                "AttributeName": "bucket_name",
-                "KeyType": "HASH"
+                "Items": [
+                    {
+                        "project_name": "test_project",
+                        "event_session_table_name": "test_event_session_table"
+                    }
+                ],
+                "LastEvaluatedKey": "some_key"
             },
             {
-                "AttributeName": "project_name",
-                "KeyType": "RANGE"
-            }
-        ],
-        BillingMode="PROVISIONED",
-        ProvisionedThroughput={
-            "ReadCapacityUnits": 10,
-            "WriteCapacityUnits": 10
-        },
-        TableClass="STANDARD",
-        AttributeDefinitions=[
-            {
-                "AttributeName": "bucket_name",
-                "AttributeType": "S"
-            },
-            {
-                "AttributeName": "project_name",
-                "AttributeType": "S"
+                "Items": [
+                    {
+                        "project_name": "test_project",
+                        "event_session_table_name": "test_event_session_table_2"
+                    }
+                ]
             }
         ]
-    )
 
-def insert_items_into_lookup_table(table):
-    """Insert lookup data in table"""
-    for item in lookup_data:
-        table.put_item(
-            Item=item
-        )
+        result = fetch_project_name_table("test_project", "event_session_table_name")
+        assert result == "test_event_session_table"
 
 
-def test_fetch_project_name_table_with_valid_project(ddb_resource):
+def test_fetch_project_name_table_with_missing_project_pagination():
     """
-    Test case for when the project and table key are valid and found.
+    Test case for when the project is not found in the lookup table with pagination.
     """
-    create_lookup_table(ddb_resource)
-
-    lookup_table = ddb_resource.Table(LOOKUP_TABLE_NAME)
-
-    insert_items_into_lookup_table(lookup_table)
-
     from utility import fetch_project_name_table
-    project_name = f"{lookup_data[0]['project_name']}"
-    result = fetch_project_name_table(project_name, "event_session_table_name")
-    assert result == "test_event_session_table"
+    with patch("utility.lookup_table.scan") as mock_table:
+        mock_table.side_effect = [
+            {
+                "Items": [],
+                "LastEvaluatedKey": "some_key"
+            },
+            {
+                "Items": []
+            }
+        ]
 
-
-now i am getting this error
-
-FAILED tests/test_utility.py::test_fetch_project_name_table_with_valid_project - botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundExcept...
+        with pytest.raises(KeyError) as key_err:
+            fetch_project_name_table("non_existent_project", "event_session_table_name")
+        assert str(key_err.value).strip('\'"') == "Project not found"
