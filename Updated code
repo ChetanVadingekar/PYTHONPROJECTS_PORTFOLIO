@@ -1,144 +1,167 @@
-{
-  "page": {
-    "S": "drive_sessions"
-  },
-  "filter_level": {
-    "S": "L2"
-  },
-  "attributes": {
-    "M": {
+SAMPLE_FILTER_DATA_V2 = {
+   "page": "event_sessions",
+   "filter_level": "L3",
+   "common_attributes": {
+      "date_time_range": {
+         "component": "DateTimeRange",
+         "db_fields": [
+            "start_time",
+            "stop_time"
+         ],
+         "type": "range"
+      },
+      "event_name": {
+         "component": "Text",
+         "props": {
+            "label": "event_name",
+            "variant": "outlined"
+         },
+         "type": "text"
+      },
       "folder_name": {
-        "M": {
-          "component": {
-            "S": "Text"
-          },
-          "props": {
-            "M": {
-              "label": {
-                "S": "folder_name"
-              },
-              "variant": {
-                "S": "outlined"
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      },
-      "rec_year_month": {
-        "M": {
-          "component": {
-            "S": "DatePicker"
-          },
-          "props": {
-            "M": {
-              "format": {
-                "S": "YYYY/MM"
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      },
-      "rec_year_month_date": {
-        "M": {
-          "component": {
-            "S": "DatePicker"
-          },
-          "props": {
-            "M": {
-              "format": {
-                "S": "YYYY/MM/DD"
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
-      },
-      "rec_year_month_date_range": {
-        "M": {
-          "component": {
-            "S": "DateTimeRangeFilter"
-          },
-          "db_fields": {
-            "L": [
-              {
-                "S": "rec_year_month_date"
-              }
-            ]
-          },
-          "type": {
-            "S": "range"
-          }
-        }
-      },
-      "tags": {
-        "M": {
-          "component": {
-            "S": "Text"
-          },
-          "multiple": {
-            "S": "true"
-          },
-          "props": {
-            "M": {
-              "label": {
-                "S": "tags"
-              },
-              "variant": {
-                "S": "outlined"
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
+         "component": "Text",
+         "props": {
+            "label": "folder_name",
+            "variant": "outlined"
+         },
+         "type": "text"
       },
       "vehicle_id": {
-        "M": {
-          "component": {
-            "S": "Text"
-          },
-          "props": {
-            "M": {
-              "dropdown_name": {
-                "S": "vehicle_id"
-              },
-              "dropdown_values": {
-                "L": []
-              },
-              "label": {
-                "S": "vehicle_id"
-              },
-              "values": {
-                "L": []
-              },
-              "variant": {
-                "S": "outlined"
-              },
-              "visibility": {
-                "BOOL": "true"
-              }
-            }
-          },
-          "type": {
-            "S": "text"
-          }
-        }
+         "component": "Selection",
+         "props": {
+            "dropdown_name": "vehicle_id",
+            "dropdown_values": [],
+            "label": "vehicle_id",
+            "values": [],
+            "variant": "outlined",
+            "visibility": "true"
+         },
+         "type": "text"
       }
-    }
-  }
+   },
+   "gen_attributes_1.0": {
+      "day_time": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "pie",
+            "color_mapping": {
+               "dawn": "#f03775",
+               "day": "#add8e6",
+               "dusk": "#191970",
+               "night": "#391a59"
+            },
+            "dropdown_name": "Day Time",
+            "dropdown_values": [
+               "day",
+               "dawn",
+               "dusk",
+               "night"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      },
+      "object_classification": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "bar",
+            "color_mapping": {
+               "default": "#d4d4d4"
+            },
+            "dropdown_name": "Object Classification",
+            "dropdown_values": [
+               "pedestrian",
+               "bicycle",
+               "animal",
+               "small car",
+               "passenger car",
+               "motorbike",
+               "long vehicles (>8m)",
+               "special vehicle"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      }
+   },
+   "gen_attributes_3.0": {
+      "day_time": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "pie",
+            "color_mapping": {
+               "day": "#add8e6",
+               "dusk/dawn": "#f03775",
+               "night": "#191970"
+            },
+            "dropdown_name": "Day Time",
+            "dropdown_values": [
+               "day",
+               "dusk/dawn",
+               "night"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      },
+      "heavy_sun_glaring": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "pie",
+            "color_mapping": {
+               "heavy": "#b8860b",
+               "light": "#75ffe3",
+               "none": "#d6c9cd"
+            },
+            "dropdown_name": "Sun Glaring",
+            "dropdown_values": [
+               "none",
+               "light",
+               "heavy"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      },
+      "lane_features": {
+         "component": "Selection",
+         "props": {
+            "chart_type": "bar",
+            "color_mapping": {
+               "default": "#d4d4d4"
+            },
+            "dropdown_name": "Lane Features",
+            "dropdown_values": [
+               "long slope",
+               "road merging",
+               "sa/pa",
+               "ramp/jct/ic",
+               "another lane(parallel/overlap)",
+               "roundabout",
+               "stacked roads",
+               "crossroad/intersection",
+               "ramp fork",
+               "slight angle",
+               "reversible lane/zipper lane",
+               "underpass",
+               "curve sign w/reduce speed",
+               "concrete lane/cobblestone",
+               "carpool lane"
+            ],
+            "values": [],
+            "visibility": "true"
+         },
+         "type": "text"
+      }
+   }
 }
 
-Actuallly earlier we have json data now we have actual ddb data
-will this insert function works?
+PAGE = "test_page"
+FILTER_LEVEL = "test_filter_level"
 
 def insert_items_into_filter_attributes_table(table, data, generation):
     table.put_item(
@@ -149,6 +172,27 @@ def insert_items_into_filter_attributes_table(table, data, generation):
             f'gen_attributes_{generation}': data[f'gen_attributes_{generation}']
         }
     )
+
+def fetch_filter_attributes(page: str, filter_level: str) -> dict:
+    """
+    Fetch filter attributes from the filter attributes table.
+
+    Args:
+        page (str): Page parameter.
+        filter_level (str): Filter level parameter.
+
+    Returns:
+        dict: Filter attributes.
+
+    Raises:
+        KeyError: If attributes are not found in the table.
+    """
+    filter_response = filter_attributes_table.get_item(
+        Key={'page': page, 'filter_level': filter_level}
+    )
+    if 'Item' not in filter_response:
+        raise KeyError("Filter attributes not found")
+    return filter_response['Item']
 
 
 def test_fetch_filter_attributes_with_valid_event_session_filters(ddb_resource):
@@ -256,5 +300,3 @@ def test_fetch_filter_attributes_with_valid_event_session_filters(ddb_resource):
             }
         }   
         assert result == expected_response
-
-do we need to update the test case? 
