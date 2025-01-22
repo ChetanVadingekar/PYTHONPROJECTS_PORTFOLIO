@@ -1,49 +1,79 @@
-def test_fetch_project_name_table_with_pagination():
+def fetch_filter_attributes(page: str, filter_level: str) -> dict:
     """
-    Test case for handling pagination in the lookup table scan.
+    Fetch filter attributes from the filter attributes table.
+
+    Args:
+        page (str): Page parameter.
+        filter_level (str): Filter level parameter.
+
+    Returns:
+        dict: Filter attributes.
+
+    Raises:
+        KeyError: If attributes are not found in the table.
     """
-    from utility import fetch_project_name_table
-    with patch("utility.lookup_table.scan") as mock_table:
-        mock_table.side_effect = [
+    filter_response = filter_attributes_table.get_item(
+        Key={'page': page, 'filter_level': filter_level}
+    )
+    if 'Item' not in filter_response:
+        raise KeyError("Filter attributes not found")
+    return filter_response['Item']
+
+I have this function and want to write test cases
+
+@pytest.fixture(scope="function")
+def dynamodb_resource(aws_credentials):
+    """Creates a boto3 dynamodb resource."""
+    with mock_aws():
+        resource = boto3.resource("dynamodb", region_name="ap-northeast-1")
+        yield resource
+
+def create_filter_attribute_table(ddb_resource):
+    """Create DynamoDB filter attribute Table"""
+    ddb_resource.create_table(
+        AttributeDefinitions=[
             {
-                "Items": [
-                    {
-                        "project_name": "test_project",
-                        "event_session_table_name": "test_event_session_table"
-                    }
-                ],
-                "LastEvaluatedKey": "some_key"
+                "AttributeName": "page",
+                "AttributeType": "S"
             },
             {
-                "Items": [
-                    {
-                        "project_name": "test_project",
-                        "event_session_table_name": "test_event_session_table_2"
-                    }
-                ]
+                "AttributeName": "filter_level",
+                "AttributeType": "S"
             }
-        ]
-
-        result = fetch_project_name_table("test_project", "event_session_table_name")
-        assert result == "test_event_session_table"
-
-
-def test_fetch_project_name_table_with_missing_project_pagination():
-    """
-    Test case for when the project is not found in the lookup table with pagination.
-    """
-    from utility import fetch_project_name_table
-    with patch("utility.lookup_table.scan") as mock_table:
-        mock_table.side_effect = [
+        ],
+        TableName=FILTER_ATTRIBUTES_TABLE_NAME,
+        KeySchema=[
             {
-                "Items": [],
-                "LastEvaluatedKey": "some_key"
+                "AttributeName": "page",
+                "KeyType": "HASH"
             },
             {
-                "Items": []
+                "AttributeName": "filter_level",
+                "KeyType": "RANGE"
             }
-        ]
+        ],
+        BillingMode="PAY_PER_REQUEST"
+    )
 
-        with pytest.raises(KeyError) as key_err:
-            fetch_project_name_table("non_existent_project", "event_session_table_name")
-        assert str(key_err.value).strip('\'"') == "Project not found"
+
+def insert_items_into_filter_attributes_table(table, data, generation):
+    table.put_item(
+        Item={
+            'page': PAGE,
+            'filter_level': FILTER_LEVEL,
+            'common_attributes': data['common_attributes'],
+            f'gen_attributes_{generation}': data[f'gen_attributes_{generation}']
+        }
+    )
+
+
+def insert_items_into_filter_attribute_drivesession_table(table, data):
+    table.put_item(
+        Item={
+            'page': PAGE,
+            'filter_level': FILTER_LEVEL,
+            'attributes': data['attributes']
+        }
+    )
+
+
