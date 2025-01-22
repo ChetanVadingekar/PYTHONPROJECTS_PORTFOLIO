@@ -1,25 +1,155 @@
-def fetch_filter_attributes(page: str, filter_level: str) -> dict:
-    """
-    Fetch filter attributes from the filter attributes table.
+{
+  "page": {
+    "S": "drive_sessions"
+  },
+  "filter_level": {
+    "S": "L2"
+  },
+  "attributes": {
+    "M": {
+      "folder_name": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "props": {
+            "M": {
+              "label": {
+                "S": "folder_name"
+              },
+              "variant": {
+                "S": "outlined"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month": {
+        "M": {
+          "component": {
+            "S": "DatePicker"
+          },
+          "props": {
+            "M": {
+              "format": {
+                "S": "YYYY/MM"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month_date": {
+        "M": {
+          "component": {
+            "S": "DatePicker"
+          },
+          "props": {
+            "M": {
+              "format": {
+                "S": "YYYY/MM/DD"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "rec_year_month_date_range": {
+        "M": {
+          "component": {
+            "S": "DateTimeRangeFilter"
+          },
+          "db_fields": {
+            "L": [
+              {
+                "S": "rec_year_month_date"
+              }
+            ]
+          },
+          "type": {
+            "S": "range"
+          }
+        }
+      },
+      "tags": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "multiple": {
+            "S": "true"
+          },
+          "props": {
+            "M": {
+              "label": {
+                "S": "tags"
+              },
+              "variant": {
+                "S": "outlined"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      },
+      "vehicle_id": {
+        "M": {
+          "component": {
+            "S": "Text"
+          },
+          "props": {
+            "M": {
+              "dropdown_name": {
+                "S": "vehicle_id"
+              },
+              "dropdown_values": {
+                "L": []
+              },
+              "label": {
+                "S": "vehicle_id"
+              },
+              "values": {
+                "L": []
+              },
+              "variant": {
+                "S": "outlined"
+              },
+              "visibility": {
+                "BOOL": "true"
+              }
+            }
+          },
+          "type": {
+            "S": "text"
+          }
+        }
+      }
+    }
+  }
+}
 
-    Args:
-        page (str): Page parameter.
-        filter_level (str): Filter level parameter.
+Actuallly earlier we have json data now we have actual ddb data
+will this insert function works?
 
-    Returns:
-        dict: Filter attributes.
-
-    Raises:
-        KeyError: If attributes are not found in the table.
-    """
-    filter_response = filter_attributes_table.get_item(
-        Key={'page': page, 'filter_level': filter_level}
+def insert_items_into_filter_attributes_table(table, data, generation):
+    table.put_item(
+        Item={
+            'page': PAGE,
+            'filter_level': FILTER_LEVEL,
+            'common_attributes': data['common_attributes'],
+            f'gen_attributes_{generation}': data[f'gen_attributes_{generation}']
+        }
     )
-    if 'Item' not in filter_response:
-        raise KeyError("Filter attributes not found")
-    return filter_response['Item']
 
-i have this function and i have written test case
 
 def test_fetch_filter_attributes_with_valid_event_session_filters(ddb_resource):
     """
@@ -28,15 +158,103 @@ def test_fetch_filter_attributes_with_valid_event_session_filters(ddb_resource):
     from utility import fetch_filter_attributes
     create_filter_attribute_table(ddb_resource)
     filter_table = ddb_resource.Table(FILTER_ATTRIBUTES_TABLE_NAME)
-    insert_items_into_filter_attributes_table(filter_table,SAMPLE_FILTER_DATA_V2,"1.0")
+    insert_items_into_filter_attributes_table(
+        filter_table,
+        SAMPLE_FILTER_DATA_V2,
+        "1.0"
+    )
 
     with patch("utility.filter_attributes_table", filter_table):
-        result = fetch_filter_attributes("event_sessions", "L3")
-        print(f"Result: {result}")
-        assert result == SAMPLE_FILTER_DATA_V2
+        result = fetch_filter_attributes(PAGE, FILTER_LEVEL)
+        expected_response = {
+            "page": "test_page",
+            "filter_level": "test_filter_level",
+            "common_attributes": {
+              "date_time_range": {
+                "component": "DateTimeRange",
+                "db_fields": [
+                  "start_time",
+                  "stop_time"
+                ],
+                "type": "range"
+              },
+              "event_name": {
+                "component": "Text",
+                "props": {
+                  "label": "event_name",
+                  "variant": "outlined"
+                },
+                "type": "text"
+              },
+              "folder_name": {
+                "component": "Text",
+                "props": {
+                  "label": "folder_name",
+                  "variant": "outlined"
+                },
+                "type": "text"
+              },
+              "vehicle_id": {
+                "component": "Selection",
+                "props": {
+                  "dropdown_name": "vehicle_id",
+                  "dropdown_values": [],
+                  "label": "vehicle_id",
+                  "values": [],
+                  "variant": "outlined",
+                  "visibility": "true"
+                },
+                "type": "text"
+              }
+            },
+            "gen_attributes_1.0": {
+              "day_time": {
+                "component": "Selection",
+                "props": {
+                  "chart_type": "pie",
+                  "color_mapping": {
+                    "dawn": "#f03775",
+                    "day": "#add8e6",
+                    "dusk": "#191970",
+                    "night": "#391a59"
+                  },
+                  "dropdown_name": "Day Time",
+                  "dropdown_values": [
+                    "day",
+                    "dawn",
+                    "dusk",
+                    "night"
+                  ],
+                  "values": [],
+                  "visibility": "true"
+                },
+                "type": "text"
+              },
+              "object_classification": {
+                "component": "Selection",
+                "props": {
+                  "chart_type": "bar",
+                  "color_mapping": {
+                    "default": "#d4d4d4"
+                  },
+                  "dropdown_name": "Object Classification",
+                  "dropdown_values": [
+                    "pedestrian",
+                    "bicycle",
+                    "animal",
+                    "small car",
+                    "passenger car",
+                    "motorbike",
+                    "long vehicles (>8m)",
+                    "special vehicle"
+                  ],
+                  "values": [],
+                  "visibility": "true"
+                },
+                "type": "text"
+              }
+            }
+        }   
+        assert result == expected_response
 
-but i am getting this error 
-
-FAILED tests/test_utility.py::test_fetch_filter_attributes_with_valid_event_session_filters - KeyError: 'Filter attributes not found'
-
-how to fix this? update the test case 
+do we need to update the test case? 
