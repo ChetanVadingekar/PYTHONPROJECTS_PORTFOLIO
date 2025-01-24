@@ -1,87 +1,107 @@
-def fetch_data_from_lookup_table(
-    bucket_name: Optional[str] = None, project_name: Optional[str] = None
-) -> list:
+class DriveSessionVehicleUtility:
     """
-    Fetch the lookup data.
+    A utility class for querying unique vehicle IDs from drive session index.
 
-    Args:
-        bucket_name (Optional[str]): Raw data bucket name as Primary Key
-        project_name (Optional[str]): Project name as Sort Key
-
-    Returns:
-        (list): Lookup info from the table
-
+    Attributes:
+        index_name (str): The name of the OpenSearch drive session index.
     """
-    if bucket_name and project_name:
-        response = lookup_table.query(
-            KeyConditionExpression=Key('bucket_name').eq(bucket_name)
-            & Key('project_name').eq(project_name),
-        )
-    elif bucket_name:
-        response = lookup_table.query(
-            KeyConditionExpression=Key('bucket_name').eq(bucket_name),
-        )
-    elif project_name:
-        response = lookup_table.scan(
-            FilterExpression=Key('project_name').eq(project_name),
-        )
-    lookup_data = response["Items"]  # type: ignore
-    next_token = response.get("LastEvaluatedKey")
 
-    while next_token:
-        if bucket_name and project_name:
-            response = lookup_table.query(
-                KeyConditionExpression=Key('bucket_name').eq(bucket_name)
-                & Key('project_name').eq(project_name),
-                ExclusiveStartKey=next_token,
-            )
-        elif bucket_name:
-            response = lookup_table.query(
-                KeyConditionExpression=Key('bucket_name').eq(bucket_name),
-                ExclusiveStartKey=next_token,
-            )
-        elif project_name:
-            response = lookup_table.scan(
-                FilterExpression=Key('project_name').eq(project_name),
-                ExclusiveStartKey=next_token,
-            )
-        lookup_data.extend(response["Items"])  # type: ignore
-        next_token = response.get("LastEvaluatedKey")
+    def __init__(self: DriveSessionVehicleUtilityVar, index_name: str) -> None:
+        """
+        Initialize the DriveSessionVehicleUtility.
 
-    return lookup_data if lookup_data else []
+        Args:
+            index_name (str): The name of the OpenSearch drive session index.
+        """
+        self.index_name = index_name
 
-So already we have this function so we need to reuse it fetch_project_name_table function.
+    def create_vehicle_id_query(
+        self: DriveSessionVehicleUtilityVar,
+        filter_key: Optional[str] = None,
+        filter_value: Optional[str] = None,
+        after_key: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """
+        Create a query to retrieve unique vehicle IDs from the index.
 
-def fetch_project_name_table(project_name: str, table_key: str) -> str:
-    """
-    Fetch the corresponding table name for a project.
+        Args:
+            filter_key (Optional[str]): The key to filter by \
+                ('current_status' or 'split_status)
+            filter_value (Optional[str]): The value for the filter key \
+                ('Completed' or 'SUCCESS')
+            after_key (optional[dict]): The pagination key for aggregations.
 
-    Args:
-        project_name (str): The project name.
-        table_key (str): The key in the lookup table.
+        Returns:
+            dict: The OpenSearch query.
+        """
+        query: dict[str, Any] = {
+            "size": 0,
+            "aggs": {
+                "unique_vehicle_ids": {
+                    "composite": {
+                        "sources": [
+                            {"vehicle_id": {"terms": {"field": "vehicle_id"}}}
+                        ],
+                        "size": 10000,
+                    }
+                }
+            },
+        }
 
-    Returns:
-        str: Table name for the project.
+        # Apply the filter only if both key and value are provided
+        if filter_key and filter_value:
+            query["query"] = {
+                "bool": {
+                    "must": [{"term": {filter_key: {"value": filter_value}}}]
+                }
+            }
 
-    Raises:
-        KeyError: If the project or table name is not found.
-    """
-    lookup_response = lookup_table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-            project_name
-        )
-    )
-    items = lookup_response.get('Items', [])
-    while 'LastEvaluatedKey' in lookup_response:
-        lookup_response = lookup_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
-                project_name
-            ),
-            ExclusiveStartKey=lookup_response['LastEvaluatedKey'],
-        )
-        items.extend(lookup_response.get('Items', []))
-    if not items:
-        raise KeyError("Project not found")
+        if after_key:
+            query["aggs"]["unique_vehicle_ids"]["composite"][
+                "after"
+            ] = after_key
+        return query
 
+    def get_unique_vehicle_ids(
+        self: DriveSessionVehicleUtilityVar,
+        filter_key: Optional[str] = None,
+        filter_value: Optional[str] = None,
+    ) -> list[str]:
+        """
+        Execute query to get all unique vehicle IDs from the index.
 
-Can you please update this function.
+        Args:
+            filter_key (Optional[str]): The key to filter by \
+                ('split_status' or 'current_status').
+            filter_value (Optional[str]): The value for the filter key \
+                ('SUCCESS' or 'Completed').
+
+        Returns:
+            list[str]: A list of unique vehicle IDs.
+        """
+        vehicle_ids: list = []
+        after_key = None
+
+        if client.indices.exists(index=self.index_name):
+            while True:
+                query = self.create_vehicle_id_query(
+                    filter_key, filter_value, after_key
+                )
+                response = client.search(index=self.index_name, body=query)
+                buckets = response["aggregations"]["unique_vehicle_ids"][
+                    "buckets"
+                ]
+                vehicle_ids.extend(
+                    bucket["key"]["vehicle_id"] for bucket in buckets
+                )
+                after_key = response["aggregations"]["unique_vehicle_ids"].get(
+                    "after_key"
+                )
+                if not after_key:
+                    break
+            return vehicle_ids
+        return vehicle_ids
+
+I got review comment for the above class where self is being not used in the create vehicle id function 
+
+As self or no instance related entities been accessed. This method can be written as static method. Please check other methods as well and perform wherever applicable.
