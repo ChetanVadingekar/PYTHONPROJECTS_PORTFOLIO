@@ -1,302 +1,87 @@
-SAMPLE_FILTER_DATA_V2 = {
-   "page": "event_sessions",
-   "filter_level": "L3",
-   "common_attributes": {
-      "date_time_range": {
-         "component": "DateTimeRange",
-         "db_fields": [
-            "start_time",
-            "stop_time"
-         ],
-         "type": "range"
-      },
-      "event_name": {
-         "component": "Text",
-         "props": {
-            "label": "event_name",
-            "variant": "outlined"
-         },
-         "type": "text"
-      },
-      "folder_name": {
-         "component": "Text",
-         "props": {
-            "label": "folder_name",
-            "variant": "outlined"
-         },
-         "type": "text"
-      },
-      "vehicle_id": {
-         "component": "Selection",
-         "props": {
-            "dropdown_name": "vehicle_id",
-            "dropdown_values": [],
-            "label": "vehicle_id",
-            "values": [],
-            "variant": "outlined",
-            "visibility": "true"
-         },
-         "type": "text"
-      }
-   },
-   "gen_attributes_1.0": {
-      "day_time": {
-         "component": "Selection",
-         "props": {
-            "chart_type": "pie",
-            "color_mapping": {
-               "dawn": "#f03775",
-               "day": "#add8e6",
-               "dusk": "#191970",
-               "night": "#391a59"
-            },
-            "dropdown_name": "Day Time",
-            "dropdown_values": [
-               "day",
-               "dawn",
-               "dusk",
-               "night"
-            ],
-            "values": [],
-            "visibility": "true"
-         },
-         "type": "text"
-      },
-      "object_classification": {
-         "component": "Selection",
-         "props": {
-            "chart_type": "bar",
-            "color_mapping": {
-               "default": "#d4d4d4"
-            },
-            "dropdown_name": "Object Classification",
-            "dropdown_values": [
-               "pedestrian",
-               "bicycle",
-               "animal",
-               "small car",
-               "passenger car",
-               "motorbike",
-               "long vehicles (>8m)",
-               "special vehicle"
-            ],
-            "values": [],
-            "visibility": "true"
-         },
-         "type": "text"
-      }
-   },
-   "gen_attributes_3.0": {
-      "day_time": {
-         "component": "Selection",
-         "props": {
-            "chart_type": "pie",
-            "color_mapping": {
-               "day": "#add8e6",
-               "dusk/dawn": "#f03775",
-               "night": "#191970"
-            },
-            "dropdown_name": "Day Time",
-            "dropdown_values": [
-               "day",
-               "dusk/dawn",
-               "night"
-            ],
-            "values": [],
-            "visibility": "true"
-         },
-         "type": "text"
-      },
-      "heavy_sun_glaring": {
-         "component": "Selection",
-         "props": {
-            "chart_type": "pie",
-            "color_mapping": {
-               "heavy": "#b8860b",
-               "light": "#75ffe3",
-               "none": "#d6c9cd"
-            },
-            "dropdown_name": "Sun Glaring",
-            "dropdown_values": [
-               "none",
-               "light",
-               "heavy"
-            ],
-            "values": [],
-            "visibility": "true"
-         },
-         "type": "text"
-      },
-      "lane_features": {
-         "component": "Selection",
-         "props": {
-            "chart_type": "bar",
-            "color_mapping": {
-               "default": "#d4d4d4"
-            },
-            "dropdown_name": "Lane Features",
-            "dropdown_values": [
-               "long slope",
-               "road merging",
-               "sa/pa",
-               "ramp/jct/ic",
-               "another lane(parallel/overlap)",
-               "roundabout",
-               "stacked roads",
-               "crossroad/intersection",
-               "ramp fork",
-               "slight angle",
-               "reversible lane/zipper lane",
-               "underpass",
-               "curve sign w/reduce speed",
-               "concrete lane/cobblestone",
-               "carpool lane"
-            ],
-            "values": [],
-            "visibility": "true"
-         },
-         "type": "text"
-      }
-   }
-}
-
-PAGE = "test_page"
-FILTER_LEVEL = "test_filter_level"
-
-def insert_items_into_filter_attributes_table(table, data, generation):
-    table.put_item(
-        Item={
-            'page': PAGE,
-            'filter_level': FILTER_LEVEL,
-            'common_attributes': data['common_attributes'],
-            f'gen_attributes_{generation}': data[f'gen_attributes_{generation}']
-        }
-    )
-
-def fetch_filter_attributes(page: str, filter_level: str) -> dict:
+def fetch_data_from_lookup_table(
+    bucket_name: Optional[str] = None, project_name: Optional[str] = None
+) -> list:
     """
-    Fetch filter attributes from the filter attributes table.
+    Fetch the lookup data.
 
     Args:
-        page (str): Page parameter.
-        filter_level (str): Filter level parameter.
+        bucket_name (Optional[str]): Raw data bucket name as Primary Key
+        project_name (Optional[str]): Project name as Sort Key
 
     Returns:
-        dict: Filter attributes.
+        (list): Lookup info from the table
+
+    """
+    if bucket_name and project_name:
+        response = lookup_table.query(
+            KeyConditionExpression=Key('bucket_name').eq(bucket_name)
+            & Key('project_name').eq(project_name),
+        )
+    elif bucket_name:
+        response = lookup_table.query(
+            KeyConditionExpression=Key('bucket_name').eq(bucket_name),
+        )
+    elif project_name:
+        response = lookup_table.scan(
+            FilterExpression=Key('project_name').eq(project_name),
+        )
+    lookup_data = response["Items"]  # type: ignore
+    next_token = response.get("LastEvaluatedKey")
+
+    while next_token:
+        if bucket_name and project_name:
+            response = lookup_table.query(
+                KeyConditionExpression=Key('bucket_name').eq(bucket_name)
+                & Key('project_name').eq(project_name),
+                ExclusiveStartKey=next_token,
+            )
+        elif bucket_name:
+            response = lookup_table.query(
+                KeyConditionExpression=Key('bucket_name').eq(bucket_name),
+                ExclusiveStartKey=next_token,
+            )
+        elif project_name:
+            response = lookup_table.scan(
+                FilterExpression=Key('project_name').eq(project_name),
+                ExclusiveStartKey=next_token,
+            )
+        lookup_data.extend(response["Items"])  # type: ignore
+        next_token = response.get("LastEvaluatedKey")
+
+    return lookup_data if lookup_data else []
+
+So already we have this function so we need to reuse it fetch_project_name_table function.
+
+def fetch_project_name_table(project_name: str, table_key: str) -> str:
+    """
+    Fetch the corresponding table name for a project.
+
+    Args:
+        project_name (str): The project name.
+        table_key (str): The key in the lookup table.
+
+    Returns:
+        str: Table name for the project.
 
     Raises:
-        KeyError: If attributes are not found in the table.
+        KeyError: If the project or table name is not found.
     """
-    filter_response = filter_attributes_table.get_item(
-        Key={'page': page, 'filter_level': filter_level}
+    lookup_response = lookup_table.scan(
+        FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
+            project_name
+        )
     )
-    if 'Item' not in filter_response:
-        raise KeyError("Filter attributes not found")
-    return filter_response['Item']
+    items = lookup_response.get('Items', [])
+    while 'LastEvaluatedKey' in lookup_response:
+        lookup_response = lookup_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('project_name').eq(
+                project_name
+            ),
+            ExclusiveStartKey=lookup_response['LastEvaluatedKey'],
+        )
+        items.extend(lookup_response.get('Items', []))
+    if not items:
+        raise KeyError("Project not found")
 
 
-def test_fetch_filter_attributes_with_valid_event_session_filters(ddb_resource):
-    """
-    Test case for when the Event filter attributes are found and valid.
-    """
-    from utility import fetch_filter_attributes
-    create_filter_attribute_table(ddb_resource)
-    filter_table = ddb_resource.Table(FILTER_ATTRIBUTES_TABLE_NAME)
-    insert_items_into_filter_attributes_table(
-        filter_table,
-        SAMPLE_FILTER_DATA_V2,
-        "1.0"
-    )
-
-    with patch("utility.filter_attributes_table", filter_table):
-        result = fetch_filter_attributes(PAGE, FILTER_LEVEL)
-        expected_response = {
-            "page": "test_page",
-            "filter_level": "test_filter_level",
-            "common_attributes": {
-              "date_time_range": {
-                "component": "DateTimeRange",
-                "db_fields": [
-                  "start_time",
-                  "stop_time"
-                ],
-                "type": "range"
-              },
-              "event_name": {
-                "component": "Text",
-                "props": {
-                  "label": "event_name",
-                  "variant": "outlined"
-                },
-                "type": "text"
-              },
-              "folder_name": {
-                "component": "Text",
-                "props": {
-                  "label": "folder_name",
-                  "variant": "outlined"
-                },
-                "type": "text"
-              },
-              "vehicle_id": {
-                "component": "Selection",
-                "props": {
-                  "dropdown_name": "vehicle_id",
-                  "dropdown_values": [],
-                  "label": "vehicle_id",
-                  "values": [],
-                  "variant": "outlined",
-                  "visibility": "true"
-                },
-                "type": "text"
-              }
-            },
-            "gen_attributes_1.0": {
-              "day_time": {
-                "component": "Selection",
-                "props": {
-                  "chart_type": "pie",
-                  "color_mapping": {
-                    "dawn": "#f03775",
-                    "day": "#add8e6",
-                    "dusk": "#191970",
-                    "night": "#391a59"
-                  },
-                  "dropdown_name": "Day Time",
-                  "dropdown_values": [
-                    "day",
-                    "dawn",
-                    "dusk",
-                    "night"
-                  ],
-                  "values": [],
-                  "visibility": "true"
-                },
-                "type": "text"
-              },
-              "object_classification": {
-                "component": "Selection",
-                "props": {
-                  "chart_type": "bar",
-                  "color_mapping": {
-                    "default": "#d4d4d4"
-                  },
-                  "dropdown_name": "Object Classification",
-                  "dropdown_values": [
-                    "pedestrian",
-                    "bicycle",
-                    "animal",
-                    "small car",
-                    "passenger car",
-                    "motorbike",
-                    "long vehicles (>8m)",
-                    "special vehicle"
-                  ],
-                  "values": [],
-                  "visibility": "true"
-                },
-                "type": "text"
-              }
-            }
-        }   
-        assert result == expected_response
+Can you please update this function.
