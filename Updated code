@@ -1,107 +1,205 @@
-class DriveSessionVehicleUtility:
+@app.route('/api/v1/users/search', methods=['POST'])
+@cognito_auth_required
+@authorization_required(perms={"list:users"})
+def filter_users() -> ResponseReturnValue:
     """
-    A utility class for querying unique vehicle IDs from drive session index.
+    Filter users based on search field and search query from request body.
 
-    Attributes:
-        index_name (str): The name of the OpenSearch drive session index.
+    Returns:
+        (ResponseReturnValue): JSON response with filtered list of users.
+
+     Raises:
+        (ResponseReturnValue): JSON response with filtered list of users.
     """
+    if (
+        not request.is_json
+        or not request.args.get('projectselected')
+        or not request.args.get('userid')
+    ):
+        message = (
+            'Request must be JSON'
+            if not request.is_json
+            else (
+                'Project not specified'
+                if not request.args.get('projectselected')
+                else 'User ID not specified'
+            )
+        )
+        return jsonify({'message': message, 'users': []}), 400
 
-    def __init__(self: DriveSessionVehicleUtilityVar, index_name: str) -> None:
-        """
-        Initialize the DriveSessionVehicleUtility.
+    data = request.get_json()
+    search_field = data.get('searchfield')
+    search_query = data.get('searchquery')
+    project = request.args.get('projectselected')
 
-        Args:
-            index_name (str): The name of the OpenSearch drive session index.
-        """
-        self.index_name = index_name
+    if search_field == 'role':
+        result = get_role_code(search_query)
+        if 'error' in result:
+            return jsonify({'message': result['error'], 'users': []}), 400
+        search_query = result['role_code']
+        search_field = 'role_code'
 
-    def create_vehicle_id_query(
-        self: DriveSessionVehicleUtilityVar,
-        filter_key: Optional[str] = None,
-        filter_value: Optional[str] = None,
-        after_key: Optional[dict[str, Any]] = None,
-    ) -> dict[str, Any]:
-        """
-        Create a query to retrieve unique vehicle IDs from the index.
+    try:
+        page_no = int(request.args.get('page_no', 1))
+        page_size = int(request.args.get('page_size', 10))
+        user_id = request.args.get('userid')
+        start_index = (page_no - 1) * page_size
+        end_index = page_no * page_size
 
-        Args:
-            filter_key (Optional[str]): The key to filter by \
-                ('current_status' or 'split_status)
-            filter_value (Optional[str]): The value for the filter key \
-                ('Completed' or 'SUCCESS')
-            after_key (optional[dict]): The pagination key for aggregations.
-
-        Returns:
-            dict: The OpenSearch query.
-        """
-        query: dict[str, Any] = {
-            "size": 0,
-            "aggs": {
-                "unique_vehicle_ids": {
-                    "composite": {
-                        "sources": [
-                            {"vehicle_id": {"terms": {"field": "vehicle_id"}}}
-                        ],
-                        "size": 10000,
-                    }
-                }
+        total_user_response = []
+        response = user_info_table_cognito.query(
+            IndexName="project_name-user_id-index",
+            KeyConditionExpression=boto3.dynamodb.conditions.Key(
+                'project_name'
+            ).eq(project),
+            FilterExpression=(
+                "account_status = :val AND "
+                "contains(#search_field, :search_query)"
+            ),
+            ExpressionAttributeValues={
+                ":val": True,
+                ":search_query": search_query,
             },
-        }
+            ExpressionAttributeNames={"#search_field": search_field},
+        )
+        total_user_response.extend(response["Items"])
 
-        # Apply the filter only if both key and value are provided
-        if filter_key and filter_value:
-            query["query"] = {
-                "bool": {
-                    "must": [{"term": {filter_key: {"value": filter_value}}}]
+        next_token = response.get('LastEvaluatedKey')
+        while next_token:
+            logging.info("Fetching the remaining results ...")
+            response = user_info_table_cognito.query(
+                IndexName="project_name-user_id-index",
+                KeyConditionExpression=boto3.dynamodb.conditions.Key(
+                    'project_name'
+                ).eq(project),
+                FilterExpression=(
+                    "account_status = :val AND "
+                    "contains(#search_field, :search_query)"
+                ),
+                ExpressionAttributeValues={
+                    ":val": True,
+                    ":search_query": search_query,
+                },
+                ExpressionAttributeNames={"#search_field": search_field},
+                ExclusiveStartKey=next_token,
+            )
+            total_user_response.extend(response["Items"])
+            next_token = response.get('LastEvaluatedKey')
+
+        users_response = get_user_data(total_user_response, project)
+        users = users_response["users"]
+        if users_response["code"] == 400:
+            return users_response["msg"], 400
+
+        filtered_users = [user for user in users if user['uid'] != user_id]
+        paginated_users = filtered_users[start_index:end_index]
+
+        if paginated_users:
+            return (
+                jsonify(
+                    {
+                        'data': paginated_users,
+                        'message': '',
+                        'total': len(filtered_users),
+                    }
+                ),
+                200,
+            )
+
+        return (
+            jsonify(
+                {
+                    'message': f'No users found for project {project}',
+                    'data': [],
+                    'total': len(filtered_users),
                 }
+            ),
+            404,
+        )
+
+    except ClientError as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return (
+            jsonify({'message': f"Error: {e.response['Error']['Message']}"}),
+            500,
+        )
+
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return (
+            jsonify(
+                {"message": "An error occurred while processing the request."}
+            ),
+            500,
+        )
+
+
+@app.route('/api/v1/users/filters', methods=['GET'])
+@cognito_auth_required
+@authorization_required(perms={"list:usersFilters"})
+def user_management_filter_attribute() -> ResponseReturnValue:
+    """
+    Fetch filter options for user management.
+
+    Returns:
+        (ResponseReturnValue): JSON response with message.
+    """
+    try:
+        page = request.args.get('page')
+        filter_level = request.args.get('filter_level')
+        if not page or not filter_level:
+            return jsonify({'message': 'Invalid page or filter level'}), 400
+
+        result = filter_attributes_table.query(
+            KeyConditionExpression=Key('page').eq(page)
+            & Key('filter_level').eq(filter_level),
+            ScanIndexForward=False,
+        )
+
+        if 'Items' not in result or not result['Items']:
+            return jsonify({'message': 'No filter options found'}), 404
+
+        item = result['Items'][0]
+        if 'attributes' not in item or not isinstance(
+            item['attributes'], dict
+        ):
+            return jsonify({'message': 'Invalid filter options format'}), 400
+
+        filter_options = item['attributes']
+        roles = []
+        last_evaluated_key = None
+
+        while True:
+            if last_evaluated_key:
+                roles_response = role_table.scan(
+                    ExclusiveStartKey=last_evaluated_key
+                )
+            else:
+                roles_response = role_table.scan()
+
+            roles.extend(roles_response.get('Items', []))
+            last_evaluated_key = roles_response.get('LastEvaluatedKey')
+            if not last_evaluated_key:
+                break
+
+        dropdown_values = [
+            {
+                "type": role.get("type", "unknown"),
+                "name": role.get("name", "unknown"),
             }
+            for role in roles
+        ]
 
-        if after_key:
-            query["aggs"]["unique_vehicle_ids"]["composite"][
-                "after"
-            ] = after_key
-        return query
+        filter_options = update_dropdown_values(
+            filter_options, dropdown_values
+        )
 
-    def get_unique_vehicle_ids(
-        self: DriveSessionVehicleUtilityVar,
-        filter_key: Optional[str] = None,
-        filter_value: Optional[str] = None,
-    ) -> list[str]:
-        """
-        Execute query to get all unique vehicle IDs from the index.
+        logging.info(f"Filter options: {filter_options}")
+        return jsonify(filter_options), 200
 
-        Args:
-            filter_key (Optional[str]): The key to filter by \
-                ('split_status' or 'current_status').
-            filter_value (Optional[str]): The value for the filter key \
-                ('SUCCESS' or 'Completed').
-
-        Returns:
-            list[str]: A list of unique vehicle IDs.
-        """
-        vehicle_ids: list = []
-        after_key = None
-
-        if client.indices.exists(index=self.index_name):
-            while True:
-                query = self.create_vehicle_id_query(
-                    filter_key, filter_value, after_key
-                )
-                response = client.search(index=self.index_name, body=query)
-                buckets = response["aggregations"]["unique_vehicle_ids"][
-                    "buckets"
-                ]
-                vehicle_ids.extend(
-                    bucket["key"]["vehicle_id"] for bucket in buckets
-                )
-                after_key = response["aggregations"]["unique_vehicle_ids"].get(
-                    "after_key"
-                )
-                if not after_key:
-                    break
-            return vehicle_ids
-        return vehicle_ids
-
-I got review comment for the above class where self is being not used in the create vehicle id function 
-
-As self or no instance related entities been accessed. This method can be written as static method. Please check other methods as well and perform wherever applicable.
+    except KeyError as e:
+        logging.error("KeyError occurred: %s", str(e))
+        return jsonify({'message': 'No filter options found'}), 404
+    except Exception as e:
+        logging.exception(f"An error occurred: {str(e)}")
+        return jsonify({"message": str(e)}), 500
