@@ -1,77 +1,59 @@
-Here’s your user stories rewritten in the correct format while maintaining clarity and structure:
+Handle Step Function Failure | Create and update resources on dev env
 
-User Story A: Handle Step Function Failure | Create and Update Resources on Dev Env
-
-As a system administrator or developer,
+As a system or developer,
 I want to handle Step Function failures effectively,
-so that failed transfer events are captured, notified, and logged properly.
+so that failed transfer events are captured, and notified.
 
-Acceptance Criteria
-	1.	Dead Letter Queue (DLQ) Creation
-	•	Given an EventBridge rule for DataTransfer,
-	•	When a transfer event fails,
-	•	Then the failed event should be captured and sent to a DLQ.
-	2.	Notification SQS Creation & Integration
-	•	Given a Step Function trigger Lambda (SFNTrigger Lambda),
-	•	When a transfer event occurs,
-	•	Then a Notification SQS queue should be created and configured as an output for the SFNTrigger Lambda.
-	3.	DLQ for Notification SQS
-	•	Given a Notification SQS queue,
-	•	When message processing fails,
-	•	Then the message should be sent to an attached DLQ for further analysis.
-	4.	Error Notifier Lambda Integration
-	•	Given a Notification SQS queue,
-	•	When a message arrives in the queue,
-	•	Then the Error Notifier Lambda should process it as a trigger event.
-	5.	Error Notifier Lambda Modification
-	•	Given an error message in Notification SQS,
-	•	When Error Notifier Lambda processes it,
-	•	Then it should parse the message and send appropriate notifications.
-	6.	Test Case Updates
-	•	Given the updated system components,
-	•	When unit and integration tests run,
-	•	Then they should cover the new functionality.
-	7.	End-to-End Flow Verification
-	•	Given an event in EventBridge,
-	•	When it fails,
-	•	Then the message should be captured in DLQ, forwarded to Notification SQS, and finally processed by Error Notifier Lambda.
+Acceptance Criteria (AC)
+	1. Dead Letter Queue (DLQ) Creation
+		A DLQ is created and attached as a target to the DataTransfer EventBridge.
+		Failed transfer events are captured and sent to the DLQ.
 
-User Story B: Handle Step Function Failure | Terraform Template Creation
+	2. Notification SQS Creation & Integration
+		A Notification SQS queue is created.
+		The Notification SQS queue is configured as an output for the DataTransfer SFNTrigger Lambda.
+ 
+	3. Create DLQ to attach to Notification SQS
+	
+	4. Error Notifier Lambda Integration
+		The Notification SQS queue is set as a trigger for the Error Notifier Lambda.
+		Error Notifier Lambda processes messages from Notification SQS.
 
-As a DevOps engineer,
+	5. Error Notifier Lambda Modification
+		Error Notifier Lambda is modified to handle and parse messages as per the required format.
+		The lambda sends notifications upon failure events.
+ 
+	6. Test Case Updates
+		Unit and integration test cases are updated to cover the new functionality.
+ 
+	7. Tests ensure messages flow correctly from EventBridge to DLQ, and Notification SQS, and finally to the Error Notifier Lambda.
+
+
+Handle Step Function Failure | Terraform Template Creation
+
+As a Developer,
 I want to create Terraform templates for failure handling,
 so that AWS infrastructure for DLQ, Notification SQS, and Lambda integration is provisioned automatically.
 
-Acceptance Criteria
-	1.	Terraform Template Creation
-	•	Given a need for infrastructure automation,
-	•	When Terraform is applied,
-	•	Then it should provision DLQ, Notification SQS, and Lambda integrations.
-	2.	DLQ Configuration in Terraform
-	•	Given an EventBridge rule for DataTransfer,
-	•	When Terraform applies the configuration,
-	•	Then a DLQ should be created and attached to EventBridge.
-	3.	Notification SQS Configuration in Terraform
-	•	Given a Step Function trigger Lambda,
-	•	When Terraform applies the configuration,
-	•	Then a Notification SQS should be created and configured as an output to DataTransfer Manifest Lambda.
-	4.	Error Notifier Lambda Setup in Terraform
-	•	Given a Notification SQS queue,
-	•	When Terraform applies the configuration,
-	•	Then the Notification SQS should be added as a trigger for Error Notifier Lambda.
-	5.	Terraform Deployment Validation
-	•	Given the Terraform template,
-	•	When it is deployed,
-	•	Then the provisioned infrastructure should match the required setup.
-	6.	Terraform Testing
-	•	Given the deployed Terraform template,
-	•	When tested,
-	•	Then it should successfully provision the expected resources.
+Acceptance Criteria (AC)
+	1. Terraform Template Creation
+		A Terraform template is created to provision the DLQ, Notification SQS, and necessary Lambda integrations.
 
-Definition of Ready (DoR) for Both Stories
-	1.	The necessary permissions to create/update AWS resources are available.
-	2.	EventBridge, Lambda, and SQS services are confirmed to be available in the target environment.
-	3.	Terraform template updates are clear.
+	2. DLQ Configuration in Terraform
+		Terraform defines a DLQ and attaches it to DataTransfer EventBridge.
+
+	3. Notification SQS Configuration in Terraform
+		Terraform provisions the Notification SQS queue and configures it as an output to the DataTransfer Manifest Lambda.
+ 
+	4. Error Notifier Lambda Setup in Terraform
+		Terraform adds the Notification SQS as a trigger for the Error Notifier Lambda.
+ 
+	5. Terraform Deployment Validation
+
+	6. Terraform template are tested for successful deployment.
+		Deployed resources match the required infrastructure setup.
 
 
-This version ensures all the acceptance criteria are written in a structured and testable format while following the user story template. Let me know if you need any further adjustments!
+I want US component-wise like 
+we are creating DLQ on aws console also we are creating a template for that so it should be one use story like wise for sqs ane other.
+please update it 
