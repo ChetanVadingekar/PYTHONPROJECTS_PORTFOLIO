@@ -1,9 +1,77 @@
-Database filtering for invalid data.  
-    Sota-san image is it should not crash the Statistics page and Home page. 
-    Without modifying the upload tool, as in one of the region upload tool was not utilized. 
-    Is the data to be remove from bucket as well ?  
-    Should the data to be removed from database also? 
-    How to handle existing invalid data? 
-    Is the invalid data been removed from all the three data sources (DDB tables, Opensearch Indices & S3 buckets)? 
-    Is there any date range information recorded, where invalid data is entered? 
-    Does Sota-san needs any frontend interface to analyze the invalid data entered in the system?
+Actually we have User story format please see below,
+
+Registration user story
+As an unregistered user,
+I want to register online
+so that I can access the books available to rent, buy
+and sell
+• Acceptance Criteria
+1. Given I am unregistered user, When I go to the site,
+Then I should see a link to sign up as user
+2. Given as an unregistered user, When I go click on
+‘signup’
+Then I should see a form allowing me to sign up with
+my email to the site
+OR (with checklist format)
+1.Unregistered user can see a link to sign up as user
+2.When user click on Sign Up, then user sees a form
+to sign up with email
+
+And we have one US and we have written like this see below so we have to make sure we are following above format
+
+Story A: Handle Step Function Failure | Create and update resources on dev env
+
+Acceptance Criteria (AC)
+	1. Dead Letter Queue (DLQ) Creation
+		A DLQ is created and attached as a target to the DataTransfer EventBridge.
+		Failed transfer events are captured and sent to the DLQ.
+
+	2. Notification SQS Creation & Integration
+		A Notification SQS queue is created.
+		The Notification SQS queue is configured as an output for the DataTransfer SFNTrigger Lambda.
+ 
+	3.  Create DLQ to attach to Notification SQS
+	
+	4. Error Notifier Lambda Integration
+		The Notification SQS queue is set as a trigger for the Error Notifier Lambda.
+		Error Notifier Lambda processes messages from Notification SQS.
+
+	5. Error Notifier Lambda Modification
+		Error Notifier Lambda is modified to handle and parse messages as per the required format.
+		The lambda sends notifications upon failure events.
+ 
+	6. Test Case Updates
+		Unit and integration test cases are updated to cover the new functionality.
+ 
+	7. Tests ensure messages flow correctly from EventBridge to DLQ, and Notification SQS, and finally to the Error Notifier Lambda.
+--------------------------------------------------------------------------
+
+Story B: Handle Step Function Failure | Terraform Template Creation
+
+Acceptance Criteria (AC)
+	1. Terraform Template Creation
+		A Terraform template is created to provision the DLQ, Notification SQS, and necessary Lambda integrations.
+
+	2. DLQ Configuration in Terraform
+		Terraform defines a DLQ and attaches it to DataTransfer EventBridge.
+
+	3. Notification SQS Configuration in Terraform
+		Terraform provisions the Notification SQS queue and configures it as an output to the DataTransfer Manifest Lambda.
+ 
+	4. Error Notifier Lambda Setup in Terraform
+		Terraform adds the Notification SQS as a trigger for the Error Notifier Lambda.
+ 
+	5. Terraform Deployment Validation
+
+	6. Terraform template are tested for successful deployment.
+		Deployed resources match the required infrastructure setup.
+
+
+---
+Definition of Ready (DoR) for Both Stories
+1. The necessary permissions to create/update AWS resources are available.
+2. EventBridge, Lambda, and SQS services are confirmed to be available in the target environment.
+3. Terraform template updates are clear.
+
+
+please update it accoridingly.
