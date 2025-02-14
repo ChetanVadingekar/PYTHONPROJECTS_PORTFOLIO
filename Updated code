@@ -1,59 +1,544 @@
-Handle Step Function Failure | Create and update resources on dev env
+We have one lambda function which send the failed events to error notifier.
+please see below lambda code and will share you code part wise 
 
-As a system or developer,
-I want to handle Step Function failures effectively,
-so that failed transfer events are captured, and notified.
+Part 1
 
-Acceptance Criteria (AC)
-	1. Dead Letter Queue (DLQ) Creation
-		A DLQ is created and attached as a target to the DataTransfer EventBridge.
-		Failed transfer events are captured and sent to the DLQ.
+lambda_function.py
 
-	2. Notification SQS Creation & Integration
-		A Notification SQS queue is created.
-		The Notification SQS queue is configured as an output for the DataTransfer SFNTrigger Lambda.
- 
-	3. Create DLQ to attach to Notification SQS
-	
-	4. Error Notifier Lambda Integration
-		The Notification SQS queue is set as a trigger for the Error Notifier Lambda.
-		Error Notifier Lambda processes messages from Notification SQS.
+"""
+This module contains a lambda handler.
 
-	5. Error Notifier Lambda Modification
-		Error Notifier Lambda is modified to handle and parse messages as per the required format.
-		The lambda sends notifications upon failure events.
- 
-	6. Test Case Updates
-		Unit and integration test cases are updated to cover the new functionality.
- 
-	7. Tests ensure messages flow correctly from EventBridge to DLQ, and Notification SQS, and finally to the Error Notifier Lambda.
+This module contains AWS lambda function handler
+which gets triggered on every time an item is created in Dynamodb table
+and invokes an AWS Batch job execution post input validation.
+"""
 
+import logging
+import os
 
-Handle Step Function Failure | Terraform Template Creation
+import boto3
+from aws_lambda_powertools.utilities.data_classes import dynamo_db_stream_event
+from aws_lambda_powertools.utilities.typing import LambdaContext
+from boto3.dynamodb.types import TypeDeserializer
+from botocore.exceptions import ClientError
+from utils import (
+    LOOKUP_TABLE_NAME,
+    _get_table_name,
+    fetch_lookup_info,
+    send_failed_event,
+)
+from validation import check_required_files_exist
 
-As a Developer,
-I want to create Terraform templates for failure handling,
-so that AWS infrastructure for DLQ, Notification SQS, and Lambda integration is provisioned automatically.
+batch_client = boto3.client(
+    "batch", region_name=os.environ.get("REGION_NAME", "ap-northeast-1")
+)
+deserializer = TypeDeserializer()
+JOB_QUEUE = os.environ.get("EVENT_SPLIT_BATCH_JOB_QUEUE", "").strip()
+JOB_DEFINITION = os.environ.get("EVENT_SPLIT_BATCH_JOB_DEFINITION", "").strip()
+LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
 
-Acceptance Criteria (AC)
-	1. Terraform Template Creation
-		A Terraform template is created to provision the DLQ, Notification SQS, and necessary Lambda integrations.
-
-	2. DLQ Configuration in Terraform
-		Terraform defines a DLQ and attaches it to DataTransfer EventBridge.
-
-	3. Notification SQS Configuration in Terraform
-		Terraform provisions the Notification SQS queue and configures it as an output to the DataTransfer Manifest Lambda.
- 
-	4. Error Notifier Lambda Setup in Terraform
-		Terraform adds the Notification SQS as a trigger for the Error Notifier Lambda.
- 
-	5. Terraform Deployment Validation
-
-	6. Terraform template are tested for successful deployment.
-		Deployed resources match the required infrastructure setup.
+logging.basicConfig(format=LOG_FORMAT, level=logging.DEBUG)
+logger = logging.getLogger(f"event_split.{__name__}")
+logger.setLevel(logging.DEBUG)
 
 
-I want US component-wise like 
-we are creating DLQ on aws console also we are creating a template for that so it should be one use story like wise for sqs ane other.
-please update it 
+def lambda_handler(
+    event: dynamo_db_stream_event.DynamoDBStreamEvent, context: LambdaContext
+) -> dict:
+    """
+    Invoke rosbag generation for each event.
+
+    Args:
+        event (dynamo_db_stream_event.DynamoDBStreamEvent): Dynamodb Stream
+        context (LambdaContext): lambda context
+
+    Returns:
+        (dict): return dict
+
+    Raises:
+        ValueError: if submit job API, unable to invoke batch job
+        AttributeError: if required input files
+    """
+    logger.info(event)
+    item = {}
+    try:
+        for record in event["Records"]:  # Expecting only one record
+            event_source_arn = record["eventSourceARN"]
+            item = {
+                key: deserializer.deserialize(value)
+                for key, value in record["dynamodb"]["NewImage"].items()
+            }
+            # Getting table name from ddb stream arn.
+            event_table_name = _get_table_name(ddb_stream_arn=event_source_arn)
+            db_item = fetch_lookup_info(table_name=event_table_name)
+            item["MERGE_BUCKET_NAME"] = db_item["merged_bucket_name"]
+            item["project_name"] = db_item["project_name"]
+
+            logger.info("Validating the required files present in the bucket")
+            status, folder_uri = check_required_files_exist(
+                info=item, lookup_item=db_item
+            )
+            logger.info("Validated status: %s" % status)
+            if status:
+                logger.info(
+                    "Submitting a batch job, with leaf folder %s" % folder_uri
+                )
+                response = batch_client.submit_job(
+                    jobName=context.aws_request_id,
+                    jobQueue=JOB_QUEUE,
+                    jobDefinition=JOB_DEFINITION,
+                    containerOverrides={
+                        "command": [],
+                        "environment": [
+                            {"name": "source_path", "value": folder_uri},
+                            {"name": "invoked_by", "value": "LAMBDA_FUNCTION"},
+                            {
+                                "name": "event_partition_key",
+                                "value": item["pid"],
+                            },
+                            {
+                                "name": "event_sort_key",
+                                "value": item["id"],
+                            },
+                            {
+                                "name": "LOOKUP_TABLE",
+                                "value": LOOKUP_TABLE_NAME,
+                            },
+                            {
+                                "name": "event_table_name",
+                                "value": event_table_name,
+                            },
+                        ],
+                    },
+                )
+                logger.info(
+                    "Response after submitting a batch job %s" % response
+                )
+                if (
+                    not response
+                    or response.get("ResponseMetadata", {}).get(
+                        "HTTPStatusCode", 0
+                    )
+                    != 200
+                ):
+                    raise ValueError("Failed to invoke Batch job")
+            else:
+                raise AttributeError("Required Input files are missing")
+            return {
+                "status": True,
+                "message": "Invoked a batch job execution",
+            }
+    except (
+        KeyError,
+        AttributeError,
+        ValueError,
+        ClientError,
+        IndexError,
+    ) as error:
+        logger.exception("Error occurred while processing %s" % error)
+        failed_event = {
+            **event,
+            "folder_name": item.get("folder_name"),
+            "error_message": str(error),
+        }
+        send_failed_event(
+            failed_event=failed_event, item=item, context=context
+        )
+
+    return {
+        "status": False,
+        "message": "Error occurred while processing the event!",
+    }
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+part 2
+
+gen_log_url.py
+
+"""
+This file contains GenLogURL class.
+
+This module contains a class which generates url for cloudwatch log stream.
+"""
+
+from typing import TypeVar
+from urllib.parse import quote
+
+# Type declaration
+GLU_Type = TypeVar("GLU_Type", bound="GenLogURL")
+
+
+class GenLogURL:
+    """Generate Log URL."""
+
+    def __init__(
+        self: GLU_Type, region: str, log_group: str, log_stream: str
+    ) -> None:
+        """
+        Initialize instance variable.
+
+        Args:
+            region: Region name.
+            log_group: Log group name.
+            log_stream: Log stream name.
+        """
+        self.region = region
+        self.log_group = log_group
+        self.log_stream = log_stream
+
+    @staticmethod
+    def aws_quote(sub_url: str) -> str:
+        """
+        Encode the URL.
+
+        Args:
+            sub_url: url string
+
+        Returns:
+            (str): encoded string
+        """
+        return quote(quote(sub_url, safe="")).replace("%", "$")
+
+    def generate_cw_url(self: GLU_Type) -> str:
+        """
+        Generate the CloudWatch url.
+
+        Returns:
+            (str): Log url.
+        """
+        return "/".join(
+            [
+                f"https://{self.region}.console.aws.amazon.com/cloudwatch/home"
+                f"?region={self.region}#logsV2:log-groups",
+                "log-group",
+                self.aws_quote(self.log_group),
+                "log-events",
+                self.aws_quote(self.log_stream),
+            ]
+        )
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+part 3
+
+utils .py 
+
+"""
+This module contain utility functions/class for the lambda function.
+
+This module contains a function to put event message into SQS (standard)
+queue, which is failed to process.
+"""
+
+import datetime
+import json
+import logging
+import os
+import re
+
+import boto3
+from aws_lambda_powertools.utilities.typing import LambdaContext
+from boto3.dynamodb.conditions import Attr
+from botocore.exceptions import ClientError
+from gen_log_url import GenLogURL
+
+LOOKUP_TABLE_NAME = os.environ.get("LOOKUP_TABLE_NAME", "FOT-Honda-lookup")
+AWS_REGION = os.environ.get("REGION_NAME", "ap-northeast-1")
+sqs_client = boto3.client("sqs", region_name=AWS_REGION)
+QUEUE_URL = os.environ.get(
+    "DEFAULT_FAILED_NOTIFICATION_QUEUE_URL",
+    (
+        "https://sqs.ap-northeast-1.amazonaws.com/310455678198/"
+        "event-split-lambda-validation-failed-queue"
+    ),
+)
+LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
+
+logging.basicConfig(format=LOG_FORMAT, level=logging.DEBUG)
+logger = logging.getLogger(f"utils.{__name__}")
+logger.setLevel(logging.DEBUG)
+
+
+def send_failed_event(
+    failed_event: dict, item: dict, context: LambdaContext
+) -> None:
+    """
+    Send message to SQS.
+
+    Args:
+        failed_event (dict): failed to process DDB event.
+        item (dict): deserialized event info with lookup data
+        context (LambdaContext): lambda context
+
+    Raises:
+        Exception: raising exception if any error occurs while sending message.
+    """
+    try:
+        logger.info("Sending the event information into SQS")
+        cw_url_generator = GenLogURL(
+            region=AWS_REGION,
+            log_group=context.log_group_name,
+            log_stream=context.log_stream_name,
+        )
+        error_msg = failed_event["error_message"]
+        item["error_msg"] = error_msg
+        msg_body = construct_queue_msg_body(item)
+        msg_body["cloudwatch_url"] = cw_url_generator.generate_cw_url()
+
+        response = sqs_client.send_message(
+            QueueUrl=QUEUE_URL,
+            MessageAttributes={
+                "folder_name": {
+                    "DataType": "String",
+                    "StringValue": failed_event["folder_name"],
+                },
+                "error_message": {
+                    "DataType": "String",
+                    "StringValue": error_msg,
+                },
+            },
+            MessageBody=json.dumps(msg_body),
+        )
+        logger.info("Message sent with response %s" % response)
+    except (ClientError, KeyError) as error:
+        logger.exception("Error occurred while sending message %s" % error)
+        raise Exception("Failed to put the message into SQS queue")
+
+
+def fetch_lookup_info(table_name: str) -> dict:
+    """
+    Fetch the lookup data based on the event stream table info.
+
+    Args:
+        table_name (str): DynamoDB event session table name
+
+    Returns:
+        (dict) : Scan operation results
+
+    Raises:
+        Exception: raising exception if lookup fails
+    """
+    logger.info(
+        f"Scanning {LOOKUP_TABLE_NAME} table to get the project "
+        f"info for the entry in the {table_name} dynamodb stream "
+        f"event"
+    )
+
+    dynamodb = boto3.resource(
+        service_name="dynamodb",
+        region_name=os.environ.get("REGION_NAME", "ap-northeast-1"),
+    )
+    try:
+        table = dynamodb.Table(LOOKUP_TABLE_NAME)
+        options = {
+            "FilterExpression": Attr('event_session_table_name').eq(table_name)
+        }
+        response = table.scan(**options)  # type: ignore
+        items = response.get("Items")
+        if items:  # Expecting only one item
+            return items[0]
+        logger.error(
+            f"Invalid input: No table with name - '{table_name}' "
+            f"exists in DynamoDB"
+        )
+        raise Exception(f"Invalid input: table_name - '{table_name}'")
+
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            logger.error(
+                f"DynamoDB lookup table - '{LOOKUP_TABLE_NAME}' "
+                f"does not exit"
+            )
+        else:
+            logger.error(f"Error Description: {str(e)}")
+
+        raise Exception("Failed to fetch the lookup information")
+
+
+def construct_queue_msg_body(event_info: dict) -> dict:
+    """
+    Construct the sqs queue message body.
+
+    Args:
+        event_info (dict): event information fetched from stream
+
+    Returns:
+        (dict): error dictionary
+    """
+    error_body = {
+        "project_name": event_info.get("project_name"),
+        "module": "Event Split",
+        "file_name": event_info.get("file_name"),
+        "user_name": event_info.get("user_name"),
+        "folder_name": event_info.get("folder_name"),
+        "vehicle_id": event_info.get("vehicle_id"),
+        "event_name": event_info.get("event_name"),
+        "start_time": event_info.get("start_time"),
+        "stop_time": event_info.get("stop_time"),
+        "failed_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "message": "Error occurred while invoking Event Split ROSbag "
+        "generation Batch Job. Please check the logs for more "
+        "information.",
+    }
+
+    return error_body
+
+
+def _get_table_name(ddb_stream_arn: str) -> str:
+    """
+    Get table name from stream arn.
+
+    Args:
+        ddb_stream_arn (str): dynamodb stream arn.
+
+    Returns:
+        (str): table name
+
+    Raises:
+        AttributeError: for an invalid arn.
+    """
+    ddb_stream_regex = re.compile(
+        "arn:aws:dynamodb:(.+):(.+):table/(.+)/stream/(.+)"
+    )
+    matches = ddb_stream_regex.match(ddb_stream_arn)
+    if not matches:
+        raise AttributeError(
+            f"ARN -> {ddb_stream_arn} is not a valid dynamodb stream arn."
+        )
+    _, _, table, _ = matches.groups()
+    return table
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+part 4
+
+validation.py
+
+"""
+This module contains validation functions.
+
+This module contains a function to creates a S3 URI to check
+if required input files are present to carry out event split rosbag generation.
+"""
+
+import logging
+import math
+
+import s3fs  # type:ignore
+
+LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
+
+logging.basicConfig(format=LOG_FORMAT, level=logging.DEBUG)
+logger = logging.getLogger(f"validation.{__name__}")
+logger.setLevel(logging.DEBUG)
+country_mapping = {"JP": "JPN", "EU": "EUR", "US": "USA"}
+
+
+def _get_s3_uri(
+    s3fs_obj: s3fs, info: dict, country_code: str
+) -> tuple[bool, str]:
+    """
+    Get valid s3 URI.
+
+    Args:
+        s3fs_obj (s3fs): s3fs object
+        info (dict) : dynamodb deserialized item
+        country_code (str) : country code (EU|USA|JPN)
+
+    Returns:
+        (tuple[bool, str]): folder exists flag, s3 folder URI
+    """
+    country = country_mapping[country_code]
+    uris = [
+        (
+            f"s3://{info['MERGE_BUCKET_NAME']}/FOT/Data/Brick_data/"
+            f"{info['rec_year_month']}/"
+            f"{info['rec_year_month_date']}/"
+            f"{info['vehicle_id']}/"
+            f"{info['folder_name']}"
+        ),
+        (
+            f"s3://{info['MERGE_BUCKET_NAME']}/FOT/Data/Brick_data/"
+            f"{info['rec_year_month']}/"
+            f"{info['rec_year_month_date']}/"
+            f"{country}{info['vehicle_id']}/"
+            f"{info['folder_name']}"
+        ),
+    ]
+    uris = [
+        (
+            {"uri": uri, "is_exists": True}  # type:ignore
+            if s3fs_obj.isdir(uri)
+            else {"uri": uri, "is_exists": False}
+        )
+        for uri in uris
+    ]
+    valid_uri = next(
+        iter([uri["uri"] for uri in uris if uri["is_exists"]]),  # type:ignore
+        "",
+    )
+    is_folder_exists = any(uri["is_exists"] for uri in uris)  # type:ignore
+    return is_folder_exists, valid_uri
+
+
+def check_required_files_exist(
+    info: dict, lookup_item: dict
+) -> tuple[bool, str]:
+    """
+    Check required file exist.
+
+    Args:
+        info(dict) : dynamodb deserialized item
+        lookup_item(dict) : lookup ddb item
+
+    Returns:
+        (tuple[bool, str]): file exists flag, s3 folder URI
+
+    Raises:
+        ValueError: If invalid country code is configured for lookup.
+    """
+    s3fs_obj = s3fs.S3FileSystem(anon=False)
+    try:
+        country_code = lookup_item.get("country_code", "").upper()
+        if country_code not in country_mapping:
+            raise ValueError(
+                f"Country code: {country_code} information is invalid."
+            )
+        generation = float(lookup_item.get("generation_name", "0"))
+        required_filetypes = list(info["avi_files"].keys()) + list(
+            info["log_files"].keys()
+        )
+        required_files = [
+            f"{info['folder_name']}_{info['vehicle_id']}" f"{filetype}"
+            for filetype in required_filetypes
+        ]
+        if math.floor(generation) == 3:
+            # for the below filetypes gen3 file starts
+            # with Honda_Data for the following file types.
+            gen3_filetypes = [
+                "_AXIS_FRONT",
+                "_AXIS_LEFT",
+                "_AXIS_REAR",
+                "_AXIS_RIGHT",
+                "_RADAR_CAN",
+            ]
+            required_files = [
+                (
+                    f"Honda_Data_{_file}"
+                    if any(_filetype in _file for _filetype in gen3_filetypes)
+                    else _file
+                )
+                for _file in required_files
+            ]
+        is_folder_exists, s3_folder_uri = _get_s3_uri(
+            s3fs_obj=s3fs_obj, info=info, country_code=country_code
+        )
+        if not is_folder_exists:
+            return False, s3_folder_uri
+        files = [f"{s3_folder_uri}/{filename}" for filename in required_files]
+        files_exist = all(s3fs_obj.exists(_file) is True for _file in files)
+        return files_exist, s3_folder_uri
+    except (KeyError, ValueError) as error:
+        logger.exception(error)
+    return False, ""
