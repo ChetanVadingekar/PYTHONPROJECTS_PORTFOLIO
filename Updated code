@@ -1,493 +1,174 @@
-As shared the above code for the Event split lambda function
-likewise we have SFN trigger lambda 
-i will share the code part wise and we have to send_failed_event in this lambda 
-so for refering purpose i have shared above lambda code 
-so you guide me how we can format the message for failed_event
-
-part 1
-
-lambda_function.py
-
-"""
-This module contains function to start step function execution.
-
-This module contains logic to identify the drive session from the S3 batch Job
-and trigger the step function for the respective drive session.
-Event bridge triggers this lambda function when S3 batch job completion
-event is identified.
-"""
-
-import logging
-
-import boto3
-from aws_lambda_typing import context
-from aws_lambda_typing.events.event_bridge import EventBridgeEvent
-from botocore.exceptions import ClientError
-from helper.fetch_lookup_data import fetch_data_from_lookup_table
-from helper.helper_functions import get_env_variable
-from helper.stepfunction_invoker import (
-    generate_stepfunction_inputs,
-    start_state_machine_execution,
-)
-
-LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
-logger = logging.getLogger("log")
-logger.setLevel(logging.INFO)
-
-region_name = get_env_variable("REGION", "ap-northeast-1")
-s3_control = boto3.client('s3control', region_name)
-
-
-def describe_s3_batch_job(account_id: str, job_id: str) -> dict:
-    """
-    Describe and get s3 batch job response.
-
-    Args:
-        account_id (str): aws account id.
-        job_id (str): unique job id.
-
-    Returns:
-        (dict) : response from describe function.
-
-    """
-    response = s3_control.describe_job(AccountId=account_id, JobId=job_id)
-    return response
-
-
-def lambda_handler(event: EventBridgeEvent, _: context.Context) -> dict:
-    """
-    Invoke Stepfunction for the given drive session S3 batch job.
-
-    Args:
-        event (EventBridgeEvent): event bridge event.
-        _ (context.Context): Unused parameter.
-
-    Returns:
-        (dict) : fail or success response.
-    """
-    try:
-        logger.info(f"event   {event}")
-        lookup_table_name = get_env_variable("LOOKUP_TABLE")
-        event_details = event['detail']
-        service_details = event_details['serviceEventDetails']
-        job_id = service_details['jobId']
-        account_id = event_details['userIdentity']['accountId']
-
-        response = describe_s3_batch_job(account_id, job_id)
-
-        manifest_location = response['Job']['Manifest']['Location']
-        manifest_arn = manifest_location['ObjectArn']
-        _, project_name, file_name = manifest_arn.split('/')
-        file_name = file_name.replace('_manifest.csv', '')
-        year_month_day, time_stamp, vehicle_id = file_name.split('_')
-        folder_name = year_month_day + "_" + time_stamp
-
-        lookup_data = fetch_data_from_lookup_table(
-            lookup_table_name,
-            attribute_name='project_name',
-            attribute_value=project_name,
-        )
-        if lookup_data:
-            logger.info("Lookup item fetched Successful.")
-
-            _input = generate_stepfunction_inputs(
-                vehicle_id, folder_name, lookup_data
-            )
-            logger.info(f'Starting step function: {folder_name}, {vehicle_id}')
-            exec_status = start_state_machine_execution(
-                _input, lookup_data['drive_session_table_name']
-            )
-            if exec_status:
-                # step function started.
-                logger.info("Function execution completed.")
-                return {
-                    'status': True,
-                    'statusCode': 200,
-                    'message': 'Operation successful.',
-                }
-            # step function failed to start.
-            logger.info(f'event: {event}')
-            logger.error("Failed to start step function execution.")
-            return {
-                'status': False,
-                'statusCode': 500,
-                'message': 'Failed to start step function execution.',
-            }
-        # no lookup item.
-        logger.error("Lookup item not found.")
-        return {
-            'status': False,
-            'statusCode': 500,
-            'message': 'Lookup item not found.',
-        }
-    except (
-        KeyError,
-        ClientError,
-        ValueError,
-        AttributeError,
-        TypeError,
-    ) as error:
-        logger.error(error)
-        logger.info(event)
-        return {
-            'status': False,
-            'statusCode': 500,
-            'message': 'Error occurred while processing this event',
-        }
-
-----------------------------------------------------------------------------------------------------------
-
-part 2
-
-step_function_invoker.py
-
-"""
-This module contains functions related to stepfunction execution.
-
-Filename: stepfunction_invoker.py.
-Author: KPIT (Sagar G V, Kunal Mahajan)
-v1.0: 25th July 2024
-v1.1: 12th February 2025
-This module contains common functions that shall be used by lambda function
-to perform operations such as start step function execution,
-generate input for step function and check redundant step function execution.
-"""
-
-import json
-import logging
-
-import boto3
-from botocore.exceptions import ParamValidationError
-from helper.helper_functions import (  # type: ignore
-    get_env_variable,
-    update_execution_arn_in_drive_data_table,
-)
-
-region_name = get_env_variable("REGION", "ap-northeast-1")
-sfn_client = boto3.client('stepfunctions', region_name)
-
-LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-MAX_RESULTS = 100
-
-
-def start_state_machine_execution(
-    input_state: str, drive_session_table_name: str
-) -> bool:
-    """
-    Start step function execution for the given input state.
-
-    Args:
-        input_state (str): input dictionary to be passed to step function.
-        drive_session_table_name (str): tablename to be passed to update \
-        execution_arn utility.
-
-    Returns:
-        (bool) : True if step function starts successfully else False.
-    """
-    try:
-        step_function_arn = get_env_variable("STEP_FUNCTION_ARN")
-        logger.info(
-            f'Triggering State Machine with ARN' f' {step_function_arn}'
-        )
-        response = sfn_client.start_execution(
-            stateMachineArn=step_function_arn,
-            input=input_state,
-        )
-        logger.info(
-            f'Step Function triggered. execution arn: '
-            f'{response["executionArn"]}'
-        )
-
-        input_state_dict = json.loads(input_state)
-        vehicle_id = input_state_dict.get('vehicle_id')
-        folder_name = input_state_dict.get('folder_name')
-        update_execution_arn_in_drive_data_table(
-            vehicle_id,
-            folder_name,
-            response['executionArn'],
-            drive_session_table_name,
-        )
-        return True
-    except (
-        sfn_client.exceptions.ExecutionLimitExceeded,
-        sfn_client.exceptions.ExecutionAlreadyExists,
-        sfn_client.exceptions.InvalidArn,
-        sfn_client.exceptions.InvalidExecutionInput,
-        sfn_client.exceptions.InvalidName,
-        sfn_client.exceptions.StateMachineDoesNotExist,
-        sfn_client.exceptions.StateMachineDeleting,
-        sfn_client.exceptions.ValidationException,
-        ParamValidationError,
-    ) as error:
-        logger.error(error)
-        return False
-
-
-def generate_stepfunction_inputs(
-    vehicle_id: str, folder_name: str, lookup_data: dict
-) -> str:
-    """
-    Generate inputs for invoking the logs/avi processing stepfunction.
-
-    Args:
-        vehicle_id (str): recording vehicle id.
-        folder_name (str): recording folder name.
-        lookup_data (dict): lookup item dict.
-
-    Returns:
-        (str) : input parameters for stepfunction.
-    """
-    folder_prefix = get_env_variable("FOLDER_PREFIX", "FOT/Data/Brick_data")
-    look_table = get_env_variable("LOOKUP_TABLE")
-    avoid_reconversion = get_env_variable("AVOID_RECONVERSION", "True")
-
-    raw_bucket_name = lookup_data['raw_bucket_name']
-    parquet_bucket_name = lookup_data['parquet_bucket_name']
-    merged_bucket_name = lookup_data['merged_bucket_name']
-    ros_bucket_name = lookup_data['ros_bucket_name']
-    year_month_day, _ = folder_name.split('_')
-    s3_obj_prefix = '/'.join(
-        [
-            folder_prefix,
-            year_month_day[:-2],
-            year_month_day,
-            vehicle_id,
-            folder_name,
-        ]
-    ).lstrip('/')
-
-    raw_data_path_uri = '/'.join(["s3:/", raw_bucket_name, s3_obj_prefix])
-    parquet_data_path_uri = raw_data_path_uri.replace(
-        raw_bucket_name, parquet_bucket_name
-    )
-    merged_data_path_uri = raw_data_path_uri.replace(
-        raw_bucket_name, merged_bucket_name
-    )
-    data_conversion_command = [
-        "python",
-        "main.py",
-        "--source",
-        raw_data_path_uri,
-    ]
-
-    avi_merge_cmd = [
-        "python",
-        "merge_avi.py",
-        "-s",
-        raw_data_path_uri,
-        "-d",
-        merged_bucket_name,
-    ]
-
-    merge_parquet_cmd = [
-        "python",
-        "merge_parquet.py",
-        "-s",
-        parquet_data_path_uri,
-        "-d",
-        merged_bucket_name,
-        "-ft",
-    ]
-
-    gen_stats_command = [
-        "python",
-        "generate_stats.py",
-        "--source",
-        merged_data_path_uri,
-    ]
-    rosbag_generation_command = ["python3", "convert_to_rosbag.py"]
-
-    merge_parquet_cmd_large = merge_parquet_cmd + ["large"]
-    merge_parquet_cmd_regular = merge_parquet_cmd + ["regular"]
-
-    if avoid_reconversion == "True":
-        rosbag_generation_command.append("--avoid_reconversion")
-
-    _input = json.dumps(
-        {
-            'raw_data_path_uri': raw_data_path_uri,
-            'parquet_data_path_uri': parquet_data_path_uri,
-            'merged_data_path_uri': merged_data_path_uri,
-            'data_conversion_command': data_conversion_command,
-            'merge_parquet_cmd_large': merge_parquet_cmd_large,
-            'merge_parquet_cmd_regular': merge_parquet_cmd_regular,
-            'gen_stats_command': gen_stats_command,
-            'ros_bucket_name': ros_bucket_name,
-            'folder_name': folder_name,
-            'avi_merge_cmd': avi_merge_cmd,
-            'vehicle_id': "".join(filter(str.isdigit, vehicle_id)),
-            'lookup_table': look_table,
-            'raw_bucket_name': raw_bucket_name,
-            'rosbag_generation_command': rosbag_generation_command,
-        }
-    )
-
-    return _input
-
---------------------------------------------------------------------------------------------------------------------------------------
-
-part 3
-
-"""
-This module contains a function to fetch dynamodb lookup item.
-
-This module contains a function to fetch dynamodb lookup item by passing
-bucket name as keyword and the function returns the matching entry.
-"""
-
-import logging
-import os
-
-import boto3
-from boto3.dynamodb.conditions import Key
-from helper.helper_functions import get_env_variable
-
-region_name = get_env_variable("REGION", "ap-northeast-1")
-dynamodb_resource = boto3.resource('dynamodb', region_name)
-
-LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
-logger = logging.getLogger("log")
-logger.setLevel(logging.INFO)
-
-
-def fetch_data_from_lookup_table(
-    lookup_table_name: str, attribute_name: str, attribute_value: str
-) -> dict:
-    """
-    Fetch data from lookup table.
-
-    Args:
-        lookup_table_name(str): lookup table name.
-        attribute_name(str): name of attribute.
-        attribute_value(str): value of attribute.
-
-    Returns:
-        (dict): lookup item.
-
-    """
-    table = dynamodb_resource.Table(lookup_table_name)
-    items = []
-    try:
-        response = table.scan(
-            FilterExpression=Key(attribute_name).eq(attribute_value),
-        )
-        items.extend(response.get("Items", []))
-        if "LastEvaluatedKey" in response:
-            while "LastEvaluatedKey" in response:
-                response = table.scan(
-                    FilterExpression=Key(attribute_name).eq(attribute_value),
-                    ExclusiveStartKey=response.get("LastEvaluatedKey"),  # type:ignore
-                )
-                items.extend(response.get("Items", []))
-        lookup_data = items[0]
-        return lookup_data
-    except Exception:
-        logger.exception("An error occurred")
-        return {}
-
------------------------------------------------------------------------------------------------------------------------
-
-part 4
-
-"""
-This module contains helper functions.
-
-This module contains common functions that shall be used by lambda function
-to perform operations such as listing s3 bucket,
-transferring file btw s3 buckets and starting the step function execution.
-
-v1.1: 12th February 2025
-This module contains utility to update failed step function execution_arn in
-drive data table
-"""
-
-import logging
-import os
-
-import boto3
-
-LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
-logger = logging.getLogger("log")
-logger.setLevel(logging.INFO)
-
-
-def get_env_variable(variable_name: str, default_value: str = "") -> str:
-    """
-    Get environment variable from system env variables.
-
-    Args:
-        variable_name (str): name of the env variable.
-        default_value (str): default value of the variable.
-
-    Returns:
-        (str) : environment variable value.
-    """
-    variable_value = os.environ.get(variable_name, default_value)
-    if variable_value != "":
-        variable_value = str(variable_value).strip()
-    else:
-        logger.error(
-            f"{variable_name} is undefined in environment " f"variables"
-        )
-    return variable_value
-
-
-def update_execution_arn_in_drive_data_table(
-    vehicle_id: str,
-    folder_name: str,
-    execution_arn: str,
-    drive_session_table_name: str,
-) -> None:
-    """
-    Update drive session entries with failed Stepfunction Execution ARN.
-
-    Args:
-        vehicle_id (str): name of vehicle id for a drive session.
-        folder_name (str): name of folder for a drive session.
-        execution_arn (str): failed stepfunction execution_arn.
-        drive_session_table_name (str): name of drive session table.
-    """
-    logger.info('Updating the execution arn on drive data table')
-    region_name = get_env_variable("REGION", "ap-northeast-1")
-    dynamodb_resource = boto3.resource('dynamodb', region_name)
-    table = dynamodb_resource.Table(drive_session_table_name)
-    table.update_item(
-        Key={
-            "vehicle_id": vehicle_id,
-            "folder_name": folder_name,
-        },
-        UpdateExpression=(
-            "SET step_function_execution_arn = "
-            ":step_function_execution_arn"
-        ),
-        ExpressionAttributeValues={
-            ':step_function_execution_arn': execution_arn
-        },
-    )
-    logger.info('Execution ARN updated on the drive data table')
-
-
-so i have shared all the lambda function code partwise.
-now what i want to do in this function i want send failed event in respective pattern.
-
 {
-    "project_name": "<project_name>",
-    "module": "Data Transfer",
-    "folder_name": "<folder_name>",
-    "vehicle_id": "<vehicle_id>",
-    "event_name": "<event_name>",
-    "cloudwatch_log_url": "<cloudwatch_log_url>",
-    "failed_at": "<failed_time>",
-    "message": "Error while generating Data Transfer, Please check logs for more information.",
-}
+                  "country": {
+                      "S": "NotFound"
+                  },
+                  "stop_time": {
+                      "S": "2024-07-26 10:28:02.700000"
+                  },
+                  "display_id": {
+                      "S": "ef53897b-1bb9-4d19-8957-51226603b841"
+                  },
+                  "prefecture": {
+                      "S": "NotFound"
+                  },
+                  "rec_year_month": {
+                      "S": "202407"
+                  },
+                  "created_at": {
+                      "S": "2024-10-17T07:49:26.728617+00:00"
+                  },
+                  "folder_name": {
+                      "S": "20220228_0004022"
+                  },
+                  "tags": {
+                      "L": []
+                  },
+                  "start_time": {
+                      "S": "2024-07-26 10:27:55.300000"
+                  },
+                  "updated_at": {
+                      "S": "2024-11-19 11:26:21.433041"
+                  },
+                  "s3_uri": {
+                      "M": {
+                          "thumbnail": {
+                              "S": "s3://tftpl-testprod-rosbag-bucket/drive_session/FOT/Data/Brick_data/202407/20240726/USA04/20240726_102746/20240726_102746_04_thumbnail.webp"
+                          },
+                          "rosbag": {
+                              "S": "s3://tftpl-testprod-rosbag-bucket/drive_session/FOT/Data/Brick_data/202407/20240726/USA04/20240726_102746/20240726_102746_04_combined.bag"
+                          }
+                      }
+                  },
+                  "current_status": {
+                      "S": "Completed"
+                  },
+                  "gps_information": {
+                      "M": {}
+                  },
+                  "pipeline_status": {
+                      "M": {
+                          "merge_avi": {
+                              "M": {
+                                  "error_log_name": {
+                                      "L": []
+                                  },
+                                  "updated_at": {
+                                      "S": "2024-10-17T07:49:26.812679+00:00"
+                                  },
+                                  "status": {
+                                      "S": "Pending"
+                                  }
+                              }
+                          },
+                          "merge_parquet": {
+                              "M": {
+                                  "error_log_name": {
+                                      "L": []
+                                  },
+                                  "updated_at": {
+                                      "S": "2024-10-17T07:49:26.812679+00:00"
+                                  },
+                                  "status": {
+                                      "S": "Pending"
+                                  }
+                              }
+                          },
+                          "upload": {
+                              "M": {
+                                  "error_log_name": {
+                                      "L": []
+                                  },
+                                  "updated_at": {
+                                      "S": "2024-10-17T07:49:26.812679+00:00"
+                                  },
+                                  "status": {
+                                      "S": "Completed"
+                                  }
+                              }
+                          },
+                          "rosbag": {
+                              "M": {
+                                  "error_log_name": {
+                                      "L": []
+                                  },
+                                  "updated_at": {
+                                      "S": "2024-10-17T07:49:26.812679+00:00"
+                                  },
+                                  "status": {
+                                      "S": "Pending"
+                                  }
+                              }
+                          },
+                          "conversion": {
+                              "M": {
+                                  "error_log_name": {
+                                      "S": ""
+                                  },
+                                  "updated_at": {
+                                      "S": "2024-10-17T07:49:26.812679+00:00"
+                                  },
+                                  "status": {
+                                      "S": "Pending"
+                                  }
+                              }
+                          },
+                          "statistics": {
+                              "M": {
+                                  "error_log_name": {
+                                      "L": []
+                                  },
+                                  "updated_at": {
+                                      "S": "2024-10-17T07:49:26.812679+00:00"
+                                  },
+                                  "status": {
+                                      "S": "Pending"
+                                  }
+                              }
+                          }
+                      }
+                  },
+                  "upload_date_time": {
+                      "S": "20240926_134605"
+                  },
+                  "rec_year_month_date": {
+                      "S": "20240726"
+                  },
+                  "vehicle_id": {
+                      "S": "04"
+                  },
+                  "statistics": {
+                      "M": {
+                          "updated_at": {
+                              "S": "2024-11-19 11:23:40.456138"
+                          },
+                          "total_drive_time_s": {
+                              "N": "7"
+                          },
+                          "max_speed_kph": {
+                              "N": "0"
+                          },
+                          "total_distance_km": {
+                              "N": "0"
+                          },
+                          "average_speed_kph": {
+                              "N": "0"
+                          }
+                      }
+                  }
 
-This kind of format i want to send please create utilty for this and fetch required values from existing lambda 
-or refer event split lambda how they have done.
-and give me full implementation of code.
+
+we have this data coming from ddb and we are deserializing this data 
+
+updated_item = dict(ddb_stream['NewImage'])
+
+        item = {
+            key: deserializer.deserialize(value)
+            for key, value in updated_item.items()
+        }
+        item["error_msg"] = str(error)
+        item["project_name"] = project_name
+
+while doing the static code analysis we are getting one error see below,
+
+data_transfer_cloud/s3_batch_transfer/lambda_function.py:109: error: Argument 1 to "deserialize" of "TypeDeserializer" has incompatible type "AttributeValue"; expected "_AttributeValueTypeDef"  [arg-type]
+
