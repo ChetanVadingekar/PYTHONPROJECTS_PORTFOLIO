@@ -1,174 +1,187 @@
-{
-                  "country": {
-                      "S": "NotFound"
-                  },
-                  "stop_time": {
-                      "S": "2024-07-26 10:28:02.700000"
-                  },
-                  "display_id": {
-                      "S": "ef53897b-1bb9-4d19-8957-51226603b841"
-                  },
-                  "prefecture": {
-                      "S": "NotFound"
-                  },
-                  "rec_year_month": {
-                      "S": "202407"
-                  },
-                  "created_at": {
-                      "S": "2024-10-17T07:49:26.728617+00:00"
-                  },
-                  "folder_name": {
-                      "S": "20220228_0004022"
-                  },
-                  "tags": {
-                      "L": []
-                  },
-                  "start_time": {
-                      "S": "2024-07-26 10:27:55.300000"
-                  },
-                  "updated_at": {
-                      "S": "2024-11-19 11:26:21.433041"
-                  },
-                  "s3_uri": {
-                      "M": {
-                          "thumbnail": {
-                              "S": "s3://tftpl-testprod-rosbag-bucket/drive_session/FOT/Data/Brick_data/202407/20240726/USA04/20240726_102746/20240726_102746_04_thumbnail.webp"
-                          },
-                          "rosbag": {
-                              "S": "s3://tftpl-testprod-rosbag-bucket/drive_session/FOT/Data/Brick_data/202407/20240726/USA04/20240726_102746/20240726_102746_04_combined.bag"
-                          }
-                      }
-                  },
-                  "current_status": {
-                      "S": "Completed"
-                  },
-                  "gps_information": {
-                      "M": {}
-                  },
-                  "pipeline_status": {
-                      "M": {
-                          "merge_avi": {
-                              "M": {
-                                  "error_log_name": {
-                                      "L": []
-                                  },
-                                  "updated_at": {
-                                      "S": "2024-10-17T07:49:26.812679+00:00"
-                                  },
-                                  "status": {
-                                      "S": "Pending"
-                                  }
-                              }
-                          },
-                          "merge_parquet": {
-                              "M": {
-                                  "error_log_name": {
-                                      "L": []
-                                  },
-                                  "updated_at": {
-                                      "S": "2024-10-17T07:49:26.812679+00:00"
-                                  },
-                                  "status": {
-                                      "S": "Pending"
-                                  }
-                              }
-                          },
-                          "upload": {
-                              "M": {
-                                  "error_log_name": {
-                                      "L": []
-                                  },
-                                  "updated_at": {
-                                      "S": "2024-10-17T07:49:26.812679+00:00"
-                                  },
-                                  "status": {
-                                      "S": "Completed"
-                                  }
-                              }
-                          },
-                          "rosbag": {
-                              "M": {
-                                  "error_log_name": {
-                                      "L": []
-                                  },
-                                  "updated_at": {
-                                      "S": "2024-10-17T07:49:26.812679+00:00"
-                                  },
-                                  "status": {
-                                      "S": "Pending"
-                                  }
-                              }
-                          },
-                          "conversion": {
-                              "M": {
-                                  "error_log_name": {
-                                      "S": ""
-                                  },
-                                  "updated_at": {
-                                      "S": "2024-10-17T07:49:26.812679+00:00"
-                                  },
-                                  "status": {
-                                      "S": "Pending"
-                                  }
-                              }
-                          },
-                          "statistics": {
-                              "M": {
-                                  "error_log_name": {
-                                      "L": []
-                                  },
-                                  "updated_at": {
-                                      "S": "2024-10-17T07:49:26.812679+00:00"
-                                  },
-                                  "status": {
-                                      "S": "Pending"
-                                  }
-                              }
-                          }
-                      }
-                  },
-                  "upload_date_time": {
-                      "S": "20240926_134605"
-                  },
-                  "rec_year_month_date": {
-                      "S": "20240726"
-                  },
-                  "vehicle_id": {
-                      "S": "04"
-                  },
-                  "statistics": {
-                      "M": {
-                          "updated_at": {
-                              "S": "2024-11-19 11:23:40.456138"
-                          },
-                          "total_drive_time_s": {
-                              "N": "7"
-                          },
-                          "max_speed_kph": {
-                              "N": "0"
-                          },
-                          "total_distance_km": {
-                              "N": "0"
-                          },
-                          "average_speed_kph": {
-                              "N": "0"
-                          }
-                      }
-                  }
+lambda_function.py
+
+import logging
+
+import boto3
+from aws_lambda_typing.context import Context
+from aws_lambda_typing.events.event_bridge import EventBridgeEvent
+from botocore.exceptions import ClientError
+from helper.fetch_lookup_data import fetch_data_from_lookup_table
+from helper.helper_functions import get_env_variable, send_failed_event
+from helper.stepfunction_invoker import (
+    generate_stepfunction_inputs,
+    start_state_machine_execution,
+)
+
+LOG_FORMAT = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
+logging.basicConfig(format=LOG_FORMAT, level=logging.INFO)
+logger = logging.getLogger("log")
+logger.setLevel(logging.INFO)
+
+region_name = get_env_variable("REGION", "ap-northeast-1")
+s3_control = boto3.client('s3control', region_name)
 
 
-we have this data coming from ddb and we are deserializing this data 
+def describe_s3_batch_job(account_id: str, job_id: str) -> dict:
+    """
+    Describe and get s3 batch job response.
 
-updated_item = dict(ddb_stream['NewImage'])
+    Args:
+        account_id (str): aws account id.
+        job_id (str): unique job id.
 
-        item = {
-            key: deserializer.deserialize(value)
-            for key, value in updated_item.items()
+    Returns:
+        (dict) : response from describe function.
+
+    """
+    response = s3_control.describe_job(AccountId=account_id, JobId=job_id)
+    return response
+
+
+def lambda_handler(event: EventBridgeEvent, context: Context) -> dict:
+    """
+    Invoke Stepfunction for the given drive session S3 batch job.
+
+    Args:
+        event (EventBridgeEvent): event bridge event.
+        _ (context.Context): Unused parameter.
+
+    Returns:
+        (dict) : fail or success response.
+    """
+    try:
+        logger.info(f"Event: {event}")
+        lookup_table_name = get_env_variable("LOOKUP_TABLE")
+        event_details = event['detail']
+        service_details = event_details['serviceEventDetails']
+        job_id = service_details['jobId']
+        account_id = event_details['userIdentity']['accountId']
+
+        response = describe_s3_batch_job(account_id, job_id)
+
+        manifest_location = response['Job']['Manifest']['Location']
+        manifest_arn = manifest_location['ObjectArn']
+        _, project_name, file_name = manifest_arn.split('/')
+        file_name = file_name.replace('_manifest.csv', '')
+        year_month_day, time_stamp, vehicle_id = file_name.split('_')
+        folder_name = year_month_day + "_" + time_stamp
+
+        lookup_data = fetch_data_from_lookup_table(
+            lookup_table_name,
+            attribute_name='project_name',
+            attribute_value=project_name,
+        )
+        if lookup_data:
+            logger.info("Lookup item fetched Successful.")
+
+            _input = generate_stepfunction_inputs(
+                vehicle_id, folder_name, lookup_data
+            )
+            logger.info(f'Starting step function: {folder_name}, {vehicle_id}')
+            exec_status = start_state_machine_execution(
+                _input, lookup_data['drive_session_table_name']
+            )
+            if exec_status:
+                # step function started.
+                logger.info("Function execution completed.")
+                return {
+                    'status': True,
+                    'statusCode': 200,
+                    'message': 'Operation successful.',
+                }
+            # step function failed to start.
+            logger.info(f'event: {event}')
+            logger.error("Failed to start step function execution.")
+            return {
+                'status': False,
+                'statusCode': 500,
+                'message': 'Failed to start step function execution.',
+            }
+        # no lookup item.
+        logger.error("Lookup item not found.")
+        return {
+            'status': False,
+            'statusCode': 500,
+            'message': 'Lookup item not found.',
         }
-        item["error_msg"] = str(error)
-        item["project_name"] = project_name
+    except Exception as error:
+        logger.error(error)
+        logger.info(event)
+        item = {
+            "folder_name": folder_name,
+            "project_name": project_name,
+            "vehicle_id": vehicle_id,
+            "error_msg": str(error),
+        }
 
-while doing the static code analysis we are getting one error see below,
+        send_failed_event(
+            item=item, context=context
+        )
 
-data_transfer_cloud/s3_batch_transfer/lambda_function.py:109: error: Argument 1 to "deserialize" of "TypeDeserializer" has incompatible type "AttributeValue"; expected "_AttributeValueTypeDef"  [arg-type]
+        return {
+            'status': False,
+            'statusCode': 500,
+            'message': 'Error occurred while processing this event',
+        }
+
+stepfunction_invoker.py
+
+def start_state_machine_execution(
+    input_state: str, drive_session_table_name: str
+) -> bool:
+    """
+    Start step function execution for the given input state.
+
+    Args:
+        input_state (str): input dictionary to be passed to step function.
+        drive_session_table_name (str): tablename to be passed to update \
+        execution_arn utility.
+
+    Returns:
+        (bool) : True if step function starts successfully else False.
+    """
+    try:
+        step_function_arn = get_env_variable("STEP_FUNCTION_ARN")
+        logger.info(
+            f'Triggering State Machine with ARN' f' {step_function_arn}'
+        )
+        response = sfn_client.start_execution(
+            stateMachineArn=step_function_arn,
+            input=input_state,
+        )
+        logger.info(
+            f'Step Function triggered. execution arn: '
+            f'{response["executionArn"]}'
+        )
+
+        input_state_dict = json.loads(input_state)
+        vehicle_id = input_state_dict.get('vehicle_id')
+        folder_name = input_state_dict.get('folder_name')
+        update_execution_arn_in_drive_data_table(
+            vehicle_id,
+            folder_name,
+            response['executionArn'],
+            drive_session_table_name,
+        )
+        return True
+    except (
+        sfn_client.exceptions.ExecutionLimitExceeded,
+        sfn_client.exceptions.ExecutionAlreadyExists,
+        sfn_client.exceptions.InvalidArn,
+        sfn_client.exceptions.InvalidExecutionInput,
+        sfn_client.exceptions.InvalidName,
+        sfn_client.exceptions.StateMachineDoesNotExist,
+        sfn_client.exceptions.StateMachineDeleting,
+        sfn_client.exceptions.ValidationException,
+        ParamValidationError,
+    ) as error:
+        logger.error(error)
+        return False
+
+
+We have a lambda function and we are catching errors in exceptions if lambda 
+function fails and we are notifying the failed event but these two errors "Failed to start step function execution" and 
+"Lookup item not found." we are not catching an exception and are not sending/notifying. so how we dynamically catch and send these 
+how we can do it in the code. 
+
 
