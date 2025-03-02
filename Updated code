@@ -1,39 +1,24 @@
-US 1: Handle Stepfunction Failure | Update Lambda function logic to handle the failed messages for SFN Trigger Lambda
-As a system or developer,
-I want to update the logic for SFN Trigger Lambda to parse messages in the required format, 
-so that appropriate notifications are sent.
+I want to store the query executed by the end user and the respective response against the query along with user information in DDB Table.
 
-Acceptance Criteria (AC):
+query: I want to see Snow data
 
-Analysed the format of the messages recieved to the SFN Trigger lambda. 
-Format the message as per the inputs recieved  to the SFN Trigger Lambda.
-Modify the configuration of lambda permissions and enviroment variable and required.
-Test and ensure that messages are formatted correctly and is able to notify
-Add and Update the required test cases.
+response:
 
-US 2: Handle Stepfunction Failure | Integrate DLQ to SFNTrigger Lambda EventBridge
-As a system or developer,
-I want to integrate a Dead Letter Queue (DLQ) with SFNTrigger EventBridge,
-so that failed transfer events are captured and stored for further analysis.
+{
+  "data": [
+    {
+      "display_id": "ec1db8d2-8355-4301-b955-bd076b984aad"
+    },
+    {
+      "display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f"
+    }
+  ],
+  "status": 200,
+  "total": 2
+}
 
-Acceptance Criteria (AC):
-1. A DLQ is integrated in AWS and attached as a target to the SFNTrigger EventBridge.
-2. Failed transfer events from SFNTrigger EventBridge are captured and stored in the DLQ.
-3. Analyse the message format inserted in DLQ. 
-4. Unit and integration tests ensure that messages flow correctly from EventBridge to DLQ.
+So I want to design the DynamoDb schema.
 
-US 3: Handle StepFunction Failure | Update the Error Notifier lambda to parse message of SFN Trigger lambda failure
-As a system or developer,
+Few things we need to consider user might execute same query after some time,
+so need to distingush the uniqueness in the table design.
 
-I want to update the logic for Error Notifier lambda to parse messages in the required format for SFN Trigger lambda, 
-so that appropriate notifications are sent.
-
-Acceptance Criteria (AC):
-
-Error Notifier Lambda is modified to handle and parse messages as per the required format.
-Test and ensure that messages are formatted correctly and is able to notify
-Add and Update the required test cases.
-
-
-I want draft a confluence page for the above US.
-So I need Task Objective and Details and conclusion.
