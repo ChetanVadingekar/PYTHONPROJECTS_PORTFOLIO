@@ -1,4 +1,4 @@
-Now we are getting this kind of response,
+I am getting response from one of the API see below,
 
 {
   "data": [
@@ -27,10 +27,94 @@ Now we are getting this kind of response,
   "total": 5
 }
 
-So I want to put this data in DDB Table
-As we designed the Schema earlier now we need to update as per the response.
+and i have designed a few dynamoDB schema to put this query information algon with response in table
+see below designs and let me know the implementation how we can put it and which one is efficient 
 
-what i want in response_data attribute it should have only data it means each display id and respective score.
-also we can store response_staus in another attribute
-and response_total 
+Design Schema 1:
+
+{
+ "user_id": "user_100",
+ "query_id": "1741091495847",
+ "query_text": "I want see snow data",
+ "response_data": {
+  "ec1db8d2-8355-4301-b955-bd076b984aad": "85%",
+  "431f82a0-4065-44db-b8a5-2ed4e9f67f3f": "75%",
+  "30077f74-0537-4a96-9761-cae8c66750f5": "73%",
+  "cf30be60-d109-4e74-bc15-ba4a26c56627": "68%",
+  "7f58265a-9c9d-4011-b643-dffcdfee2f2c": "58%"
+ },
+ "response_status": "200",
+ "response_total": "5",
+ "page": "event_sessions"
+}
+
+Design Schema 2:
+
+{
+ "user_id": "user_100",
+ "query_id": "1741094486826",
+ "query_text": "I want see snow data",
+ "response_data": {
+	"data": [
+		{ 
+			"display_id": "ec1db8d2-8355-4301-b955-bd076b984aad"
+			"score": "85%"
+		},
+		{
+			"display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f",
+			"score": "75%"
+		},
+		{
+			"display_id": "30077f74-0537-4a96-9761-cae8c66750f5",
+			"score": "73%"
+		},
+		{
+			"display_id": "cf30be60-d109-4e74-bc15-ba4a26c56627",
+			"score": "68%"
+		},
+		{
+			"display_id": "7f58265a-9c9d-4011-b643-dffcdfee2f2c",
+			"score": "58%"
+		}
+ },
+ "response_status": "200",
+ "response_total": "5",
+ "page": "event_sessions"
+}
+
+
+Design Schema 3
+
+{
+ "user_id": "user_200",
+ "query_id": "1741094757099",
+ "query_text": "I want see ice data",
+ "response": {
+	"data": [
+		{ 
+			"display_id": "ec1db8d2-8355-4301-b955-bd076b984aad"
+			"score": "85%"
+		},
+		{
+			"display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f",
+			"score": "75%"
+		},
+		{
+			"display_id": "30077f74-0537-4a96-9761-cae8c66750f5",
+			"score": "73%"
+		},
+		{
+			"display_id": "cf30be60-d109-4e74-bc15-ba4a26c56627",
+			"score": "68%"
+		},
+		{
+			"display_id": "7f58265a-9c9d-4011-b643-dffcdfee2f2c",
+			"score": "58%"
+		}
+	],
+	"status": "200",
+	"total": "5"
+ },
+ "page": "event_sessions"
+}
 
