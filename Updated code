@@ -1,120 +1,38 @@
-I am getting response from one of the API see below,
+def get_user_email() -> str:
+    """
+    Fetch the email associated with a given user ID from the Cognito User Pool.
 
-{
-  "data": [
-    {
-      "display_id": "ec1db8d2-8355-4301-b955-bd076b984aad",
-	  "score": 85%
-    },
-    {
-      "display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f",
-	  "score": 75%
-    },
-    {
-      "display_id": "30077f74-0537-4a96-9761-cae8c66750f5",
-	  "score": 73%
-    },
-    {
-      "display_id": "cf30be60-d109-4e74-bc15-ba4a26c56627",
-	  "score": 68%
-    },
-    {
-      "display_id": "7f58265a-9c9d-4011-b643-dffcdfee2f2c",
-	  "score": 58%
-    }
-  ],
-  "status": 200,
-  "total": 5
-}
+    Returns:
+        str: The email associated with the user ID or an error message
 
-and i have designed a few dynamoDB schema to put this query information algon with response in table
-see below designs and let me know the implementation how we can put it and which one is efficient 
+    Raises:
+        IndexError:If the email attribute is not found in the user's attributes
+    """
+    if g.get("user_id"):
+        user_id = g.user_id
 
-Design Schema 1:
+    try:
+        cognito_client = boto3.client('cognito-idp', region_name=REGION_NAME)
+    except NoCredentialsError as e:
+        return f"AWS credentials not found: {e}"
 
-{
- "user_id": "user_100",
- "query_id": "1741091495847",
- "query_text": "I want see snow data",
- "response_data": {
-  "ec1db8d2-8355-4301-b955-bd076b984aad": "85%",
-  "431f82a0-4065-44db-b8a5-2ed4e9f67f3f": "75%",
-  "30077f74-0537-4a96-9761-cae8c66750f5": "73%",
-  "cf30be60-d109-4e74-bc15-ba4a26c56627": "68%",
-  "7f58265a-9c9d-4011-b643-dffcdfee2f2c": "58%"
- },
- "response_status": "200",
- "response_total": "5",
- "page": "event_sessions"
-}
+    user_pool_id = get_user_pool_id()
+    try:
+        cognito_response = cognito_client.admin_get_user(
+            UserPoolId=user_pool_id,
+            Username=user_id,
+        )
+    except Exception as e:
+        return f"Error fetching user data: {str(e)}"
+    user_attr = cognito_response['UserAttributes']
+    email_attr = (
+        attr['Value'] for attr in user_attr if attr['Name'] == 'email'
+    )
+    email = next(email_attr, None)
+    if email is None:
+        raise IndexError("Email attribute not found in user's attributes.")
+    return email
 
-Design Schema 2:
-
-{
- "user_id": "user_100",
- "query_id": "1741094486826",
- "query_text": "I want see snow data",
- "response_data": {
-	"data": [
-		{ 
-			"display_id": "ec1db8d2-8355-4301-b955-bd076b984aad"
-			"score": "85%"
-		},
-		{
-			"display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f",
-			"score": "75%"
-		},
-		{
-			"display_id": "30077f74-0537-4a96-9761-cae8c66750f5",
-			"score": "73%"
-		},
-		{
-			"display_id": "cf30be60-d109-4e74-bc15-ba4a26c56627",
-			"score": "68%"
-		},
-		{
-			"display_id": "7f58265a-9c9d-4011-b643-dffcdfee2f2c",
-			"score": "58%"
-		}
- },
- "response_status": "200",
- "response_total": "5",
- "page": "event_sessions"
-}
-
-
-Design Schema 3
-
-{
- "user_id": "user_200",
- "query_id": "1741094757099",
- "query_text": "I want see ice data",
- "response": {
-	"data": [
-		{ 
-			"display_id": "ec1db8d2-8355-4301-b955-bd076b984aad"
-			"score": "85%"
-		},
-		{
-			"display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f",
-			"score": "75%"
-		},
-		{
-			"display_id": "30077f74-0537-4a96-9761-cae8c66750f5",
-			"score": "73%"
-		},
-		{
-			"display_id": "cf30be60-d109-4e74-bc15-ba4a26c56627",
-			"score": "68%"
-		},
-		{
-			"display_id": "7f58265a-9c9d-4011-b643-dffcdfee2f2c",
-			"score": "58%"
-		}
-	],
-	"status": "200",
-	"total": "5"
- },
- "page": "event_sessions"
-}
-
+I have above function so i want to do 
+code efficient and optimiztion without affecting existing functionality.
+please make required changes.
