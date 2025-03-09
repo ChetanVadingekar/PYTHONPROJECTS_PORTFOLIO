@@ -1,33 +1,81 @@
-def get_user_email() -> str:
+def store_query_info(
+    user_id: str,
+    email_id: str,
+    query_text: str,
+    query_response: dict,
+    page: str,
+):
     """
-    Fetch the email associated with a given user ID from the Cognito User Pool.
+    Store query information into DynamoDB Table.
 
-    Returns:
-        str: The email associated with the user ID or an error message
-
-    Raises:
-        IndexError:If the email attribute is not found in the user's attributes
+    Args:
+        user_id (str): The user making the request.
+        email_id (str): User email id.
+        query_text (str): The query executed by the user.
+        query_response (dict): The query response against the query.
+        page (str): The page from which query was made.
     """
-    try:
-        user_id = g.user_id if g.get("user_id") else None
-        user_pool_id = get_user_pool_id()
-        if user_id and user_pool_id:
-            cognito_client = boto3.client('cognito-idp', region_name=REGION_NAME)
-            cognito_response = cognito_client.admin_get_user(
-                UserPoolId=user_pool_id,
-                Username=user_id,
-            )
-            user_attr = cognito_response['UserAttributes']
-            email = next((attr["Value"] for attr in user_attr if attr["Name"] == "email"), None)
-            return email
-        return None
-    except NoCredentialsError:
-        return "AWS credentials not found."
-    except ClientError:
-        return "Error fetching user data."
-    except IndexError:
-        return "Email attribute not found in user's attributes."
+    ssm_client = client("ssm", region_name=REGION_NAME)
+    param_name = f"/{ENV}/DDB/UserQueryInfoTable"
+    ssm_response = ssm_client.get_parameter(Name=param_name)
+    user_query_info_table = dynamodb.Table(ssm_response)
+    query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
 
-for the above utility function do we need to handle this exceptions?
-if not required correct the function 
-also corretc the docstring and annotations. 
+    item = {
+        "user_id": user_id,
+        "query_id": query_id,
+        "email_id": email_id,
+        "page": page,
+        "query_response": {
+            "data": query_response.get("data", []),
+            "status": query_response.get("status", 200),
+            "total": query_response.get(
+                "total", len(query_response.get("data", []))
+            ),
+        },
+        "query_text": query_text,
+    }
+
+    user_query_info_table.put_item(Item=item)
+    logging.INFO(f"Successfully stored query info for query_id: {query_id}")
+
+
+query_response = {
+        "data": [
+            {
+                "display_id": "ec1db8d2-8355-4301-b955-bd076b984aad",
+                "score": "85%"
+            },
+            {
+                "display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f",
+                "score": "75%"
+            },
+            {
+                "display_id": "30077f74-0537-4a96-9761-cae8c66750f5",
+                "score": "73%"
+            },
+            {
+                "display_id": "cf30be60-d109-4e74-bc15-ba4a26c56627",
+                "score": "68%"
+            },
+            {
+                "display_id": "7f58265a-9c9d-4011-b643-dffcdfee2f2c",
+                "score": "58%"
+            }
+        ],
+        "status": "200",
+        "total": "5"
+    }
+
+I am getting static code errors see below
+
+ANN201 Missing return type annotation for public function
+
+error: Argument "Item" to "put_item" of "Table" has incompatible type "dict[str, Collection[str]]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
+
+error: Argument "Item" to "put_item" of "Table" has incompatible type "dict[str, Collection[str]]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
+
+error: Argument 2 to "store_query_info" has incompatible type "Optional[str]"; expected "str"  [arg-type]
+
+Please correct the annotation.
+
