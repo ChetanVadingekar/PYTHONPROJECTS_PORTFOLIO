@@ -8,31 +8,26 @@ def get_user_email() -> str:
     Raises:
         IndexError:If the email attribute is not found in the user's attributes
     """
-    if g.get("user_id"):
-        user_id = g.user_id
-
     try:
-        cognito_client = boto3.client('cognito-idp', region_name=REGION_NAME)
-    except NoCredentialsError as e:
-        return f"AWS credentials not found: {e}"
+        user_id = g.user_id if g.get("user_id") else None
+        user_pool_id = get_user_pool_id()
+        if user_id and user_pool_id:
+            cognito_client = boto3.client('cognito-idp', region_name=REGION_NAME)
+            cognito_response = cognito_client.admin_get_user(
+                UserPoolId=user_pool_id,
+                Username=user_id,
+            )
+            user_attr = cognito_response['UserAttributes']
+            email = next((attr["Value"] for attr in user_attr if attr["Name"] == "email"), None)
+            return email
+        return None
+    except NoCredentialsError:
+        return "AWS credentials not found."
+    except ClientError:
+        return "Error fetching user data."
+    except IndexError:
+        return "Email attribute not found in user's attributes."
 
-    user_pool_id = get_user_pool_id()
-    try:
-        cognito_response = cognito_client.admin_get_user(
-            UserPoolId=user_pool_id,
-            Username=user_id,
-        )
-    except Exception as e:
-        return f"Error fetching user data: {str(e)}"
-    user_attr = cognito_response['UserAttributes']
-    email_attr = (
-        attr['Value'] for attr in user_attr if attr['Name'] == 'email'
-    )
-    email = next(email_attr, None)
-    if email is None:
-        raise IndexError("Email attribute not found in user's attributes.")
-    return email
-
-I have above function so i want to do 
-code efficient and optimiztion without affecting existing functionality.
-please make required changes.
+for the above utility function do we need to handle this exceptions?
+if not required correct the function 
+also corretc the docstring and annotations. 
