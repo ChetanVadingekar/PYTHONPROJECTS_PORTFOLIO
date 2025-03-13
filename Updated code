@@ -1,31 +1,56 @@
-def validate_query_params(required_params: list) -> dict:
+def store_query_info(
+    user_id: str,
+    email_id: str,
+    query_text: str,
+    query_response: dict,
+    page: str,
+    status_code: int,
+    error_msg: str,
+) -> None:
     """
-    Validate query parameters and return them if valid.
+    Store query information into DynamoDB Table.
 
     Args:
-        required_params (list): List of required query parameter names.
-
-    Returns:
-        dict: Dictionary of query parameter values.
-
-    Raises:
-        ValueError: If any required parameter is missing.
+        user_id (str): The user making the request.
+        email_id (str): User email id.
+        query_text (str): The query executed by the user.
+        query_response (dict): The query response against the query.
+        page (str): The page from which query was made.
+        status_code (int): HTTP status code.
+        error_msg (str): error message.
     """
-    params = {param: request.args.get(param) for param in required_params}
-    if not all(params.values()):
-        raise ValueError("Missing query params in the request")
-    return params
+    try:
+        ssm_client = client("ssm", region_name=REGION_NAME)
+        param_name = f"/{ENV}/DDB/UserQueryInfoTable"
+        ssm_response = ssm_client.get_parameter(Name=param_name)
+        table_name = ssm_response['Parameter']['Value']
+        user_query_info_table = dynamodb.Table(table_name)
+        query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
 
+        item = {
+            "user_id": user_id,
+            "query_id": query_id,
+            "email_id": email_id,
+            "page": page,
+            "query_response": {
+                "data": query_response.get("data", []),
+                "total": query_response.get(
+                    "total", len(query_response.get("data", []))
+                ),
+            },
+            "status_code": status_code,
+            "query_text": query_text,
+        }
 
-I have this validate query param function.
+        if error_msg:
+            item.update({"error_message": error_msg})
 
-and i get this param from the frontend and we are assigning some default values see below
+        user_query_info_table.put_item(Item=item)  # type: ignore
+        logging.info(
+            f"Successfully stored query info for query_id: {query_id}"
+        )
+    except ClientError as e:
+        logging.error(f"Error while storing query info {e}")
 
-        project_name = request.args.get("project-name", "")
-        page_type = request.args.get("page-type", "")
-        sortby = request.args.get("sortby", ["updated_at"])
-        page_no = int(request.args.get("page-number", 1))
-        page_size = int(request.args.get("page-size", 10000))
-
-
-then how we can do it in this function. 
+for the above where we can get the ClientError.
+give me those test cases.
