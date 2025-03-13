@@ -1,81 +1,31 @@
-def store_query_info(
-    user_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-):
+def validate_query_params(required_params: list) -> dict:
     """
-    Store query information into DynamoDB Table.
+    Validate query parameters and return them if valid.
 
     Args:
-        user_id (str): The user making the request.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
+        required_params (list): List of required query parameter names.
+
+    Returns:
+        dict: Dictionary of query parameter values.
+
+    Raises:
+        ValueError: If any required parameter is missing.
     """
-    ssm_client = client("ssm", region_name=REGION_NAME)
-    param_name = f"/{ENV}/DDB/UserQueryInfoTable"
-    ssm_response = ssm_client.get_parameter(Name=param_name)
-    user_query_info_table = dynamodb.Table(ssm_response)
-    query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
-
-    item = {
-        "user_id": user_id,
-        "query_id": query_id,
-        "email_id": email_id,
-        "page": page,
-        "query_response": {
-            "data": query_response.get("data", []),
-            "status": query_response.get("status", 200),
-            "total": query_response.get(
-                "total", len(query_response.get("data", []))
-            ),
-        },
-        "query_text": query_text,
-    }
-
-    user_query_info_table.put_item(Item=item)
-    logging.INFO(f"Successfully stored query info for query_id: {query_id}")
+    params = {param: request.args.get(param) for param in required_params}
+    if not all(params.values()):
+        raise ValueError("Missing query params in the request")
+    return params
 
 
-query_response = {
-        "data": [
-            {
-                "display_id": "ec1db8d2-8355-4301-b955-bd076b984aad",
-                "score": "85%"
-            },
-            {
-                "display_id": "431f82a0-4065-44db-b8a5-2ed4e9f67f3f",
-                "score": "75%"
-            },
-            {
-                "display_id": "30077f74-0537-4a96-9761-cae8c66750f5",
-                "score": "73%"
-            },
-            {
-                "display_id": "cf30be60-d109-4e74-bc15-ba4a26c56627",
-                "score": "68%"
-            },
-            {
-                "display_id": "7f58265a-9c9d-4011-b643-dffcdfee2f2c",
-                "score": "58%"
-            }
-        ],
-        "status": "200",
-        "total": "5"
-    }
+I have this validate query param function.
 
-I am getting static code errors see below
+and i get this param from the frontend and we are assigning some default values see below
 
-ANN201 Missing return type annotation for public function
+        project_name = request.args.get("project-name", "")
+        page_type = request.args.get("page-type", "")
+        sortby = request.args.get("sortby", ["updated_at"])
+        page_no = int(request.args.get("page-number", 1))
+        page_size = int(request.args.get("page-size", 10000))
 
-error: Argument "Item" to "put_item" of "Table" has incompatible type "dict[str, Collection[str]]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
 
-error: Argument "Item" to "put_item" of "Table" has incompatible type "dict[str, Collection[str]]"; expected "Mapping[str, Union[bytes, bytearray, str, int, Decimal, <8 more items>, None]]"  [arg-type]
-
-error: Argument 2 to "store_query_info" has incompatible type "Optional[str]"; expected "str"  [arg-type]
-
-Please correct the annotation.
-
+then how we can do it in this function. 
