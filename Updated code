@@ -10,73 +10,46 @@ def get_ddb_table_names(db: str = "DDB", env: str = ENV) -> tuple:
         (tuple): table names
     """
     path = f"/{env}/{db}/"
-    table_names = {
-        'lookup': '',
-        'map_details': '',
-        'filter_attr': '',
-        'user_table': '',
-        'userpool_id': '',
-        'role_table': '',
-        'user_info_cognito_table': '',
-    }
-
+    lookup = ""
+    map_details = ""
+    filter_attr = ""
+    user_table = ""
     ssm_client = boto3.client("ssm", region_name=REGION_NAME)
-
     try:
         response = ssm_client.get_parameters_by_path(
             Path=path, Recursive=True, WithDecryption=True
         )
         for param_info in response.get("Parameters", []):
             name = param_info.get("Name", "")
-            value = param_info.get("Value", "")
             if "LookupTable" in name:
-                table_names['lookup'] = value
+                lookup = param_info.get("Value", "")
             elif "FilterAttributesTable" in name:
-                table_names['filter_attr'] = value
+                filter_attr = param_info.get("Value", "")
             elif "MapDetailsTable" in name:
-                table_names['map_details'] = value
+                map_details = param_info.get("Value", "")
 
-        table_names['user_table'] = ssm_client.get_parameter(
-            Name=f"/{env}/UserManagement/DDB/UserTable"
-        )['Parameter']['Value']
-        table_names['userpool_id'] = ssm_client.get_parameter(
-            Name=f"/{env}/UserManagement/Cognito/COGNITO_USERPOOL_ID"
-        )['Parameter']['Value']
-        table_names['role_table'] = ssm_client.get_parameter(
-            Name=f"/{env}/UserManagement/DDB/RoleTable"
-        )['Parameter']['Value']
-        table_names['user_info_cognito_table'] = ssm_client.get_parameter(
-            Name=f"/{env}/UserManagement/DDB/RoleInfoTable"
-        )['Parameter']['Value']
+        response = ssm_client.get_parameter(
+            Name=f"/{ENV}/UserManagement/DDB/UserTable"
+        )
+
+        user_table = response["Parameter"]["Value"]
 
     except ssm_client.exceptions.ParameterNotFound:
         logger.exception(
-            "Could not find one or more parameters in Parameter Store"
+            "Could not find the User Table parameter in Parameter Store"
         )
+
     except ssm_client.exceptions.InternalServerError:
         logger.exception("Error occurred while fetching table names")
 
     logger.info(
-        "Parameters store: Lookup: %s, MapDetails: %s, FilterAttr: %s, "
-        "UserTable: %s, UserPoolID: %s, RoleTable: %s , "
-        "UserInfoCognitoTable: %s",
-        table_names['lookup'],
-        table_names['map_details'],
-        table_names['filter_attr'],
-        table_names['user_table'],
-        table_names['userpool_id'],
-        table_names['role_table'],
-        table_names['user_info_cognito_table'],
+        "Parameters store: Lookup: %s, MapDetails: %s, "
+        "FilterAttr: %s, UserTable: %s"
+        % (lookup, map_details, filter_attr, user_table)
     )
+    return lookup, map_details, filter_attr, user_table
 
-    return tuple(table_names.values())
+we have above function to get the SSM parameter values but if we have parameter name 
+like this f"/{ENV}/DDB/UserQueryInfoTable" we should make our function dynamic and optimized
 
-we have above function to get parameter values but
-
-        ssm_client = client("ssm", region_name=REGION_NAME)
-        param_name = f"/{ENV}/DDB/UserQueryInfoTable"
-        ssm_response = ssm_client.get_parameter(Name=param_name)
-        table_name = ssm_response['Parameter']['Value']
-
-i want to fetch this param name inside that function so make it dynamic and efficient function
-so that we can get any parameter name 
+please modify this function.
