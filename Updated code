@@ -1,56 +1,82 @@
-def store_query_info(
-    user_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-    status_code: int,
-    error_msg: str,
-) -> None:
+def get_ddb_table_names(db: str = "DDB", env: str = ENV) -> tuple:
     """
-    Store query information into DynamoDB Table.
+    Get table names from parameter store.
 
     Args:
-        user_id (str): The user making the request.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
-        status_code (int): HTTP status code.
-        error_msg (str): error message.
+        db (str): db component name
+        env (str): environment
+
+    Returns:
+        (tuple): table names
     """
+    path = f"/{env}/{db}/"
+    table_names = {
+        'lookup': '',
+        'map_details': '',
+        'filter_attr': '',
+        'user_table': '',
+        'userpool_id': '',
+        'role_table': '',
+        'user_info_cognito_table': '',
+    }
+
+    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
+
     try:
+        response = ssm_client.get_parameters_by_path(
+            Path=path, Recursive=True, WithDecryption=True
+        )
+        for param_info in response.get("Parameters", []):
+            name = param_info.get("Name", "")
+            value = param_info.get("Value", "")
+            if "LookupTable" in name:
+                table_names['lookup'] = value
+            elif "FilterAttributesTable" in name:
+                table_names['filter_attr'] = value
+            elif "MapDetailsTable" in name:
+                table_names['map_details'] = value
+
+        table_names['user_table'] = ssm_client.get_parameter(
+            Name=f"/{env}/UserManagement/DDB/UserTable"
+        )['Parameter']['Value']
+        table_names['userpool_id'] = ssm_client.get_parameter(
+            Name=f"/{env}/UserManagement/Cognito/COGNITO_USERPOOL_ID"
+        )['Parameter']['Value']
+        table_names['role_table'] = ssm_client.get_parameter(
+            Name=f"/{env}/UserManagement/DDB/RoleTable"
+        )['Parameter']['Value']
+        table_names['user_info_cognito_table'] = ssm_client.get_parameter(
+            Name=f"/{env}/UserManagement/DDB/RoleInfoTable"
+        )['Parameter']['Value']
+
+    except ssm_client.exceptions.ParameterNotFound:
+        logger.exception(
+            "Could not find one or more parameters in Parameter Store"
+        )
+    except ssm_client.exceptions.InternalServerError:
+        logger.exception("Error occurred while fetching table names")
+
+    logger.info(
+        "Parameters store: Lookup: %s, MapDetails: %s, FilterAttr: %s, "
+        "UserTable: %s, UserPoolID: %s, RoleTable: %s , "
+        "UserInfoCognitoTable: %s",
+        table_names['lookup'],
+        table_names['map_details'],
+        table_names['filter_attr'],
+        table_names['user_table'],
+        table_names['userpool_id'],
+        table_names['role_table'],
+        table_names['user_info_cognito_table'],
+    )
+
+    return tuple(table_names.values())
+
+we have above function to get parameter values but
+
         ssm_client = client("ssm", region_name=REGION_NAME)
         param_name = f"/{ENV}/DDB/UserQueryInfoTable"
         ssm_response = ssm_client.get_parameter(Name=param_name)
         table_name = ssm_response['Parameter']['Value']
-        user_query_info_table = dynamodb.Table(table_name)
-        query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
 
-        item = {
-            "user_id": user_id,
-            "query_id": query_id,
-            "email_id": email_id,
-            "page": page,
-            "query_response": {
-                "data": query_response.get("data", []),
-                "total": query_response.get(
-                    "total", len(query_response.get("data", []))
-                ),
-            },
-            "status_code": status_code,
-            "query_text": query_text,
-        }
-
-        if error_msg:
-            item.update({"error_message": error_msg})
-
-        user_query_info_table.put_item(Item=item)  # type: ignore
-        logging.info(
-            f"Successfully stored query info for query_id: {query_id}"
-        )
-    except ClientError as e:
-        logging.error(f"Error while storing query info {e}")
-
-for the above where we can get the ClientError.
-give me those test cases.
+i want to fetch this param name inside that function so make it dynamic and efficient function
+so that we can get any parameter name 
