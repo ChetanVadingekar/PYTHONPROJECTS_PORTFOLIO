@@ -1,65 +1,33 @@
-def store_query_info(
-    user_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-    status_code: int,
-    error_msg: str,
-) -> None:
-    """
-    Store query information into DynamoDB Table.
-
-    Args:
-        user_id (str): The user making the request.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
-        status_code (int): HTTP status code.
-        error_msg (str): error message.
-    """
-    try:
-        query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
-
-        item = {
-            "user_id": user_id,
-            "query_id": query_id,
-            "email_id": email_id,
-            "page": page,
-            "query_response": {
-                "data": query_response.get("data", []),
-                "total": query_response.get(
-                    "total", len(query_response.get("data", []))
-                ),
+def create_user_query_info_table(resource):
+    """Create lookup table."""
+    resource.create_table(
+        TableName=LOOKUP_TABLE_NAME,
+        KeySchema=[
+            {
+                "AttributeName": "user_id",
+                "KeyType": "HASH"
             },
-            "status_code": status_code,
-            "query_text": query_text,
-            "error_message": error_msg,
-            "internal_data": query_response.get("internal_data", ""),
-        }
+            {
+                "AttributeName": "query_id",
+                "KeyType": "RANGE"
+            }
+        ],
+        BillingMode="PROVISIONED",
+        ProvisionedThroughput={
+            "ReadCapacityUnits": 10,
+            "WriteCapacityUnits": 10
+        },
+        TableClass="STANDARD",
+        AttributeDefinitions=[
+            {
+                "AttributeName": "bucket_name",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "project_name",
+                "AttributeType": "S"
+            }
+        ]
+    )
 
-        user_query_info_table.put_item(Item=item)  # type: ignore
-        logging.info(
-            f"Successfully stored query info for query_id: {query_id}"
-        )
-    except Exception as e:
-        logging.error(f"Error while storing query info {e}")
-        log_unstored_query_info_to_cloudwatch(
-            user_id,
-            query_id,
-            email_id,
-            query_text,
-            query_response,
-            page,
-            status_code,
-            error_msg,
-        )
-
-
-I have this function and i want to write a test case for ecah scenario
-
-please create the mock table this function will store the info into that table
-will get the values from the mock table and assert it 
-
-please give me the test cases
+i have created one function use it in the test case
