@@ -1,33 +1,61 @@
-def create_user_query_info_table(resource):
-    """Create lookup table."""
-    resource.create_table(
-        TableName=LOOKUP_TABLE_NAME,
-        KeySchema=[
-            {
-                "AttributeName": "user_id",
-                "KeyType": "HASH"
-            },
-            {
-                "AttributeName": "query_id",
-                "KeyType": "RANGE"
-            }
-        ],
-        BillingMode="PROVISIONED",
-        ProvisionedThroughput={
-            "ReadCapacityUnits": 10,
-            "WriteCapacityUnits": 10
-        },
-        TableClass="STANDARD",
-        AttributeDefinitions=[
-            {
-                "AttributeName": "bucket_name",
-                "AttributeType": "S"
-            },
-            {
-                "AttributeName": "project_name",
-                "AttributeType": "S"
-            }
-        ]
-    )
+def log_unstored_query_info_to_cloudwatch(
+    user_id: str,
+    query_id: str,
+    email_id: str,
+    query_text: str,
+    query_response: dict,
+    page: str,
+    status_code: int,
+    error_msg: str,
+) -> None:
+    """
+    Log unstored query information to Cloudwatch.
 
-i have created one function use it in the test case
+    Args:
+        user_id (str): The user making the request.
+        query_id (str): The query_id is the unique key required for DB.
+        email_id (str): User email id.
+        query_text (str): The query executed by the user.
+        query_response (dict): The query response against the query.
+        page (str): The page from which query was made.
+        status_code (int): HTTP status code.
+        error_msg (str): error message.
+    """
+    try:
+        log_group_name = "/aws/DDB/UserQueryInfo"
+        log_stream_name = f"/aws/DDB/UserQueryInfo/{user_id}_{query_id}"
+        logs = boto3.client('logs')
+        logs.create_log_stream(
+            logGroupName=log_group_name, logStreamName=log_stream_name
+        )
+
+        log_event = {
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "message": json.dumps(
+                {
+                    "user_id": user_id,
+                    "email_id": email_id,
+                    "query_text": query_text,
+                    "query_response": query_response,
+                    "page": page,
+                    "status_code": status_code,
+                    "error_message": error_msg,
+                    "internal_data": query_response.get("internal_data", ""),
+                }
+            ),
+        }
+        logs.put_log_events(
+            logGroupName=log_group_name,
+            logStreamName=log_stream_name,
+            logEvents=[log_event],
+        )
+        logging.info("Logged unstored query information to cloudwatch.")
+    except Exception as e:
+        logging.error(f"Error while logging query info to cloudwatch {e}")
+
+
+I have this function and i want to write a test cases for this 
+
+please create mock cloud watch log group 
+please consider positive and negative test cases
+should cover all the scenarios 
