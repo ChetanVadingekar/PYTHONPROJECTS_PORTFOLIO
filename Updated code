@@ -1,55 +1,58 @@
-def get_ddb_table_names(db: str = "DDB", env: str = ENV) -> tuple:
+def get_user_email() -> str:
     """
-    Get table names from parameter store.
-
-    Args:
-        db (str): db component name
-        env (str): environment
+    Retrieve the email associated with current user from AWS Cognito User Pool.
 
     Returns:
-        (tuple): table names
+        str: The user email.
     """
-    path = f"/{env}/{db}/"
-    lookup = ""
-    map_details = ""
-    filter_attr = ""
-    user_table = ""
-    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
+    user_id = g.user_id if g.get("user_id") else None
+    user_pool_id = get_user_pool_id()
+
+    if not user_id or not user_pool_id:
+        return ""
     try:
-        response = ssm_client.get_parameters_by_path(
-            Path=path, Recursive=True, WithDecryption=True
+        cognito_client = boto3.client('cognito-idp', region_name=REGION_NAME)
+        cognito_response = cognito_client.admin_get_user(
+            UserPoolId=user_pool_id,
+            Username=user_id,
         )
-        for param_info in response.get("Parameters", []):
-            name = param_info.get("Name", "")
-            if "LookupTable" in name:
-                lookup = param_info.get("Value", "")
-            elif "FilterAttributesTable" in name:
-                filter_attr = param_info.get("Value", "")
-            elif "MapDetailsTable" in name:
-                map_details = param_info.get("Value", "")
-
-        response = ssm_client.get_parameter(
-            Name=f"/{ENV}/UserManagement/DDB/UserTable"
+        user_attr = cognito_response['UserAttributes']
+        return next(
+            (attr["Value"] for attr in user_attr if attr["Name"] == "email"),
+            "",
         )
+    except ClientError as e:
+        logging.error(f"Error fetching user data: {e}")
+        return ""
 
-        user_table = response["Parameter"]["Value"]
+i have this function and i have written test case
 
-    except ssm_client.exceptions.ParameterNotFound:
-        logger.exception(
-            "Could not find the User Table parameter in Parameter Store"
-        )
+@mock_aws
+def test_get_user_email():
+    """Test fetching email associated with a user ID from Cognito User Pool."""
 
-    except ssm_client.exceptions.InternalServerError:
-        logger.exception("Error occurred while fetching table names")
+    from utility import get_user_email
+    from main import app
+    from auth.routes import g
 
-    logger.info(
-        "Parameters store: Lookup: %s, MapDetails: %s, "
-        "FilterAttr: %s, UserTable: %s"
-        % (lookup, map_details, filter_attr, user_table)
-    )
-    return lookup, map_details, filter_attr, user_table
+    with patch("utility.get_user_email") as mock_email_address,\
+         patch("utility.get_user_pool_id") as mock_get_user_pool_id,\
+         patch("utility.boto3.client") as mock_boto_client:
 
-we have above function to get the SSM parameter values but if we have parameter name 
-like this f"/{ENV}/DDB/UserQueryInfoTable" we should make our function dynamic and optimized
+        mock_cognito_client = Mock()
+        mock_boto_client.return_value = mock_cognito_client
+        mock_cognito_client.admin_get_user.return_value = {
+        'UserAttributes': [
+            {'Name': 'email', 'Value': 'abc@test.com'}
+        ]
+    }
+        mock_get_user_pool_id.return_value = 'mock_user_pool_id'
+        mock_email_address.return_value = 'abc@test.com'
 
-please modify this function.
+        with app.app_context():
+            g.user_id = "mock_user_id"
+            result = get_user_email()
+            assert result== 'abc@test.com'
+
+
+similar way i have to write test case for cliet erroe
