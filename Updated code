@@ -1,3 +1,60 @@
+def log_unstored_query_info_to_cloudwatch(
+    user_id: str,
+    query_id: str,
+    email_id: str,
+    query_text: str,
+    query_response: dict,
+    page: str,
+    status_code: int,
+    error_msg: str,
+) -> None:
+    """
+    Log unstored query information to Cloudwatch.
+
+    Args:
+        user_id (str): The user making the request.
+        query_id (str): The query_id is the unique key required for DB.
+        email_id (str): User email id.
+        query_text (str): The query executed by the user.
+        query_response (dict): The query response against the query.
+        page (str): The page from which query was made.
+        status_code (int): HTTP status code.
+        error_msg (str): error message.
+    """
+    try:
+        log_group_name = "/aws/DDB/UserQueryInfo"
+        log_stream_name = f"/aws/DDB/UserQueryInfo/{user_id}_{query_id}"
+        logs = boto3.client('logs')
+        logs.create_log_stream(
+            logGroupName=log_group_name, logStreamName=log_stream_name
+        )
+
+        log_event = {
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "message": json.dumps(
+                {
+                    "user_id": user_id,
+                    "email_id": email_id,
+                    "query_text": query_text,
+                    "query_response": query_response,
+                    "page": page,
+                    "status_code": status_code,
+                    "error_message": error_msg,
+                    "internal_data": query_response.get("internal_data", ""),
+                }
+            ),
+        }
+        logs.put_log_events(
+            logGroupName=log_group_name,
+            logStreamName=log_stream_name,
+            logEvents=[log_event],
+        )
+        logging.info("Logged unstored query information to cloudwatch.")
+    except Exception as e:
+        logging.error(f"Error while logging query info to cloudwatch {e}")
+
+I have this function and we have written a test case see below
+
 CLOUDWATCH_LOG_GROUP_NAME = "/test-logs/query-info/"
 
 @pytest.fixture(scope="function")
@@ -5,23 +62,22 @@ def cloudwatch_log_client(aws_credentials):
     """Creates a boto3 cloudwatch logs client."""
     with mock_aws():
         client = boto3.client("logs", region_name="ap-northeast-1")
+        client.create_log_group(logGroupName=CLOUDWATCH_LOG_GROUP_NAME)
         yield client
-
-def create_cloudwatch_log_group(cloudwatch_log_client, log_group_name):
-    """Creates a cloudwatch log group"""
-    cloudwatch_log_client.create_log_group(
-        logGroupName=log_group_name,
-    )
 
 @mock_aws
 def test_log_unstored_query_info_success(cloudwatch_log_client):
    """Test successful logging to CloudWatch"""
    from utility import log_unstored_query_info_to_cloudwatch
-   create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
+#    create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
+   log_groups = cloudwatch_log_client.describe_log_groups()['logGroups']
+   log_group_names = [lg['logGroupName'] for lg in log_groups]
+   print(f"log group names: {log_group_names}")
+   assert CLOUDWATCH_LOG_GROUP_NAME in log_group_names, "Log group was not created"
    with patch("utility.boto3.client") as mock_boto_client:
        mock_boto_client.return_value = cloudwatch_log_client
        user_id = "user123"
-       query_id = ""
+       query_id = "1741854306879"
        email_id = "user123@dummy.com"
        query_text = "I want to see snow data"
        query_response = {     
@@ -56,11 +112,11 @@ def test_log_unstored_query_info_success(cloudwatch_log_client):
        print(f"response: {response}")
        assert any(stream["logStreamName"] == log_stream_name for stream in response["logStreams"])
 
-for the above test case getting error plase fix it
+for the above test case getting error see below
 
 ERROR    root:utility.py:2550 Error while logging query info to cloudwatch An error occurred (ResourceNotFoundException) when calling the CreateLogStream operation: The specified log group does not exist.
 
 rror while logging query info to cloudwatch An error occurred (ResourceNotFoundException) when calling the CreateLogStream operation: The specified log group does not exist.
 
-response: {'logStreams': [], 'ResponseMetadata': {'RequestId': 'wnikI2SlFfo5PUhsywqgSfO6s4Wjs8AVtGy6GK1Zn3dBrr0E1I3d', 'HTTPStatusCode': 200, 'HTTPHeaders': {'server': 'amazon.com', 'date': 'Tue, 18 Mar 2025 23:38:43 GMT', 'x-amzn-requestid': 'wnikI2SlFfo5PUhsywqgSfO6s4Wjs8AVtGy6GK1Zn3dBrr0E1I3d'}, 'RetryAttempts': 0}}
-
+log group names: ['/test-logs/query-info/']
+response: {'logStreams': [], 'ResponseMetadata': {'RequestId': '08zJjuBD4MXTAxJFPyrIt24lCk0VyubpvVEVTsiiWLK9kXjZlvLN', 'HTTPStatusCode': 200, 'HTTPHeaders': {'server': 'amazon.com', 'date': 'Wed, 19 Mar 2025 12:45:03 GMT', 'x-amzn-requestid': '08zJjuBD4MXTAxJFPyrIt24lCk0VyubpvVEVTsiiWLK9kXjZlvLN'}, 'RetryAttempts': 0}}
