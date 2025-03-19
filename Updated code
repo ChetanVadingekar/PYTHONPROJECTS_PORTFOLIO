@@ -1,61 +1,66 @@
-def log_unstored_query_info_to_cloudwatch(
-    user_id: str,
-    query_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-    status_code: int,
-    error_msg: str,
-) -> None:
-    """
-    Log unstored query information to Cloudwatch.
+CLOUDWATCH_LOG_GROUP_NAME = "/test-logs/query-info/"
 
-    Args:
-        user_id (str): The user making the request.
-        query_id (str): The query_id is the unique key required for DB.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
-        status_code (int): HTTP status code.
-        error_msg (str): error message.
-    """
-    try:
-        log_group_name = "/aws/DDB/UserQueryInfo"
-        log_stream_name = f"/aws/DDB/UserQueryInfo/{user_id}_{query_id}"
-        logs = boto3.client('logs')
-        logs.create_log_stream(
-            logGroupName=log_group_name, logStreamName=log_stream_name
-        )
+@pytest.fixture(scope="function")
+def cloudwatch_log_client(aws_credentials):
+    """Creates a boto3 cloudwatch logs client."""
+    with mock_aws():
+        client = boto3.client("logs", region_name="ap-northeast-1")
+        yield client
 
-        log_event = {
-            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-            "message": json.dumps(
-                {
-                    "user_id": user_id,
-                    "email_id": email_id,
-                    "query_text": query_text,
-                    "query_response": query_response,
-                    "page": page,
-                    "status_code": status_code,
-                    "error_message": error_msg,
-                    "internal_data": query_response.get("internal_data", ""),
-                }
-            ),
-        }
-        logs.put_log_events(
-            logGroupName=log_group_name,
-            logStreamName=log_stream_name,
-            logEvents=[log_event],
-        )
-        logging.info("Logged unstored query information to cloudwatch.")
-    except Exception as e:
-        logging.error(f"Error while logging query info to cloudwatch {e}")
+def create_cloudwatch_log_group(cloudwatch_log_client, log_group_name):
+    """Creates a cloudwatch log group"""
+    cloudwatch_log_client.create_log_group(
+        logGroupName=log_group_name,
+    )
 
+@mock_aws
+def test_log_unstored_query_info_success(cloudwatch_log_client):
+   """Test successful logging to CloudWatch"""
+   from utility import log_unstored_query_info_to_cloudwatch
+   create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
+   with patch("utility.boto3.client") as mock_boto_client:
+       mock_boto_client.return_value = cloudwatch_log_client
+       user_id = "user123"
+       query_id = ""
+       email_id = "user123@dummy.com"
+       query_text = "I want to see snow data"
+       query_response = {     
+                "total": 2, 
+                "internal_data": "Testing internal data",
+                "data": [ 
+                    { 
+                    "display_id": "event1",
+                    "score": "70%"
+                    }, 
+                    { 
+                    "display_id": "event2",
+                    "score": "65%"
+                    }
+                ]
+            }
+       page = "event_session"
+       status_code = 200
+       error_msg = ""
+       log_unstored_query_info_to_cloudwatch(
+           user_id, 
+           query_id, 
+           email_id, 
+           query_text, 
+           query_response, 
+           page, 
+           status_code, 
+           error_msg
+       )
+       log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}{user_id}_{query_id}"
+       response = cloudwatch_log_client.describe_log_streams(logGroupName=CLOUDWATCH_LOG_GROUP_NAME)
+       print(f"response: {response}")
+       assert any(stream["logStreamName"] == log_stream_name for stream in response["logStreams"])
 
-I have this function and i want to write a test cases for this 
+for the above test case getting error plase fix it
 
-please create mock cloud watch log group 
-please consider positive and negative test cases
-should cover all the scenarios 
+ERROR    root:utility.py:2550 Error while logging query info to cloudwatch An error occurred (ResourceNotFoundException) when calling the CreateLogStream operation: The specified log group does not exist.
+
+rror while logging query info to cloudwatch An error occurred (ResourceNotFoundException) when calling the CreateLogStream operation: The specified log group does not exist.
+
+response: {'logStreams': [], 'ResponseMetadata': {'RequestId': 'wnikI2SlFfo5PUhsywqgSfO6s4Wjs8AVtGy6GK1Zn3dBrr0E1I3d', 'HTTPStatusCode': 200, 'HTTPHeaders': {'server': 'amazon.com', 'date': 'Tue, 18 Mar 2025 23:38:43 GMT', 'x-amzn-requestid': 'wnikI2SlFfo5PUhsywqgSfO6s4Wjs8AVtGy6GK1Zn3dBrr0E1I3d'}, 'RetryAttempts': 0}}
+
