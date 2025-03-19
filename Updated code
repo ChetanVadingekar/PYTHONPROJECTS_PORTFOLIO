@@ -1,122 +1,106 @@
-def log_unstored_query_info_to_cloudwatch(
-    user_id: str,
-    query_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-    status_code: int,
-    error_msg: str,
-) -> None:
-    """
-    Log unstored query information to Cloudwatch.
-
-    Args:
-        user_id (str): The user making the request.
-        query_id (str): The query_id is the unique key required for DB.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
-        status_code (int): HTTP status code.
-        error_msg (str): error message.
-    """
-    try:
-        log_group_name = "/aws/DDB/UserQueryInfo"
-        log_stream_name = f"/aws/DDB/UserQueryInfo/{user_id}_{query_id}"
-        logs = boto3.client('logs')
-        logs.create_log_stream(
-            logGroupName=log_group_name, logStreamName=log_stream_name
-        )
-
-        log_event = {
-            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-            "message": json.dumps(
-                {
-                    "user_id": user_id,
-                    "email_id": email_id,
-                    "query_text": query_text,
-                    "query_response": query_response,
-                    "page": page,
-                    "status_code": status_code,
-                    "error_message": error_msg,
-                    "internal_data": query_response.get("internal_data", ""),
-                }
-            ),
-        }
-        logs.put_log_events(
-            logGroupName=log_group_name,
-            logStreamName=log_stream_name,
-            logEvents=[log_event],
-        )
-        logging.info("Logged unstored query information to cloudwatch.")
-    except Exception as e:
-        logging.error(f"Error while logging query info to cloudwatch {e}")
-
-I have this function and we have written a test case see below
-
-CLOUDWATCH_LOG_GROUP_NAME = "/test-logs/query-info/"
-
-@pytest.fixture(scope="function")
-def cloudwatch_log_client(aws_credentials):
-    """Creates a boto3 cloudwatch logs client."""
-    with mock_aws():
-        client = boto3.client("logs", region_name="ap-northeast-1")
-        client.create_log_group(logGroupName=CLOUDWATCH_LOG_GROUP_NAME)
-        yield client
-
 @mock_aws
-def test_log_unstored_query_info_success(cloudwatch_log_client):
-   """Test successful logging to CloudWatch"""
-   from utility import log_unstored_query_info_to_cloudwatch
-#    create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
-   log_groups = cloudwatch_log_client.describe_log_groups()['logGroups']
-   log_group_names = [lg['logGroupName'] for lg in log_groups]
-   print(f"log group names: {log_group_names}")
-   assert CLOUDWATCH_LOG_GROUP_NAME in log_group_names, "Log group was not created"
-   with patch("utility.boto3.client") as mock_boto_client:
-       mock_boto_client.return_value = cloudwatch_log_client
-       user_id = "user123"
-       query_id = "1741854306879"
-       email_id = "user123@dummy.com"
-       query_text = "I want to see snow data"
-       query_response = {     
-                "total": 2, 
-                "internal_data": "Testing internal data",
-                "data": [ 
-                    { 
-                    "display_id": "event1",
-                    "score": "70%"
-                    }, 
-                    { 
-                    "display_id": "event2",
-                    "score": "65%"
-                    }
-                ]
-            }
-       page = "event_session"
-       status_code = 200
-       error_msg = ""
-       log_unstored_query_info_to_cloudwatch(
-           user_id, 
-           query_id, 
-           email_id, 
-           query_text, 
-           query_response, 
-           page, 
-           status_code, 
-           error_msg
-       )
-       log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}{user_id}_{query_id}"
-       response = cloudwatch_log_client.describe_log_streams(logGroupName=CLOUDWATCH_LOG_GROUP_NAME)
-       print(f"response: {response}")
-       assert any(stream["logStreamName"] == log_stream_name for stream in response["logStreams"])
+@patch('flask_cognito.cognito_auth_required', lambda f: f)
+@patch("auth.utils.get_user_management_config",
+       Mock(return_value=USER_CONFIG_DETAILS))
+@patch("auth.routes.get_user_details")
+@patch("auth.routes.current_cognito_jwt", {"sub": "mock_user_id"})
+def test_filter_description_api(mock_get_user_details, cloudwatch_log_client,
+                                ssm_client, dynamodb_resource):
+    """Test description filter"""
+    put_parameter_store_config(ssm_client, ENV)
 
-for the above test case getting error see below
+    create_users_table(dynamodb_resource)
+    user_table = dynamodb_resource.Table(USER_TABLE_NAME)
+    insert_items_into_users_table(user_table)
+    create_user_query_info_table(dynamodb_resource)
+    query_info_table = dynamodb_resource.Table(USER_QUERY_INFO)
+    create_cloudwatch_log_group(
+        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+    create_role_info_table(dynamodb_resource)
+    add_roles_to_ddb(dynamodb_resource)
 
-ERROR    root:utility.py:2550 Error while logging query info to cloudwatch An error occurred (ResourceNotFoundException) when calling the CreateLogStream operation: The specified log group does not exist.
+    delete_index(index_name=TEST_EVENT_TABLE_NAME)
 
-rror while logging query info to cloudwatch An error occurred (ResourceNotFoundException) when calling the CreateLogStream operation: The specified log group does not exist.
+    with patch('utility.get_db_client') as mock_get_db_client, \
+            patch('utility.requests.post') as mock_post, \
+            patch('utility.get_filter_attributes_by_generation') \
+                    as mock_get_filter_attributes, \
+            patch('utility.user_query_info_table', query_info_table):
+        mock_get_db_client.return_value = OS_DB_CLIENT
+        mock_get_filter_attributes.return_value = ["street_conditions"]
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {     
+            "total": 3, 
+            "internal_data": "Testing internal data",
+            "data": [ 
+                { 
+                "display_id": "test-003",
+                "score": "71%"
+                }, 
+                { 
+                "display_id": "test-004",
+                "score": "65%"
+                },
+                { 
+                "display_id": "test-002",
+                "score": "60%"
+                }
+            ]
+        }
 
-log group names: ['/test-logs/query-info/']
-response: {'logStreams': [], 'ResponseMetadata': {'RequestId': '08zJjuBD4MXTAxJFPyrIt24lCk0VyubpvVEVTsiiWLK9kXjZlvLN', 'HTTPStatusCode': 200, 'HTTPHeaders': {'server': 'amazon.com', 'date': 'Wed, 19 Mar 2025 12:45:03 GMT', 'x-amzn-requestid': '08zJjuBD4MXTAxJFPyrIt24lCk0VyubpvVEVTsiiWLK9kXjZlvLN'}, 'RetryAttempts': 0}}
+        from main import app
+        app.config['TESTING'] = True
+        app.config["RoleTable"] = ROLE_TABLE_NAME
+        app.extensions = MagicMock()
+        app.extensions["cognito_auth"].return_value = "mock_token"
+        mock_get_user_details.return_value = {
+            "projects": ["test-project"],
+            "groups": [],
+            "scopes": ROLE_TABLE_ITEMS[0]["scopes"]
+        }
+        with app.test_client() as client:
+            client.set_cookie("user_id", "100")
+            create_lookup_table(dynamodb_resource)
+            lookup_resource = dynamodb_resource.Table(LOOKUP_TABLE_NAME)
+            insert_items_into_lookup_table(lookup_resource)
+
+            create_index(TEST_EVENT_TABLE_NAME, "event")
+            insert_data_to_index(TEST_EVENT_TABLE_NAME, "event",
+                                 SAMPLE_EVENT_DATA)
+
+            response = client.post(
+                f"/fetch-events-by-query?project-name="
+                f"{lookup_data[0]['project_name']}&filter_level=L3&generation=1.0",
+                data=json.dumps(json.dumps(
+                    [
+                        {
+                            "query": "Test description 2"
+                        }
+                    ]
+                )),
+                content_type='application/json'
+            )
+            total = response.json["total"]
+            assert response.status_code == 200
+            assert total == 3
+
+            items = query_info_table.scan()["Items"]
+            assert len(items) == 1
+            stored_item = items[0]
+            assert stored_item["user_id"] == "mock_user_id"
+            assert stored_item["query_text"] == "Test description 2"
+            assert stored_item["status_code"] == 200
+            assert stored_item["query_response"]["total"] == 3
+
+    delete_cloudwatch_log_group(
+        cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+
+for this test case user_id is not setting it returning None thats why qury info was not stored.
+
+see error
+
+API-Log:main.py:219 {'user_id': None, 'remote_ip': '127.0.0.1', 'source_path': '/fetch-events-by-query', 'request_method': 'POST', 'request_headers': {'User-Agent': 'Werkzeug/3.0.3', 'Host': 'localhost', 'Content-Type': 'application/json', 'Content-Length': '39'}, 'request_endpoint': 'get_events_by_query', 'response_headers': {'Content-Type': 'application/json', 'Content-Length': '7278'}, 'response_status': 200, 'duration': 185.561, 'invoked_time': datetime.datetime(2025, 3, 19, 16, 25, 57, 201932)}
+
+1. Error while storing query info An error occurred (ValidationException) when calling the PutItem operation: One or more parameter values were invalid: Type mismatch for key user_id expected: S actual: NULL
+
+2. assert 0 == 1 
