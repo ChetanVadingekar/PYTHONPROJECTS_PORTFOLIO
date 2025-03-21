@@ -1,180 +1,130 @@
-@mock_aws
-def test_log_unstored_query_info_success(cloudwatch_log_client, ssm_client):
-   """Test successful logging to CloudWatch"""
-   from utility import log_unstored_query_info_to_cloudwatch
-   put_parameter_store_config(ssm_client=ssm_client, params=PARAMETER_STORE_PARAMS)
-   create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
-   with patch("utility.boto3.client") as mock_boto_client:
-       mock_boto_client.return_value = cloudwatch_log_client
-       user_id = "user123"
-       query_id = "1741854306879"
-       email_id = "user123@dummy.com"
-       query_text = "I want to see snow data"
-       query_response = {     
-                "total": 2, 
-                "internal_data": "Testing internal data",
-                "data": [ 
-                    { 
-                    "display_id": "event1",
-                    "score": "70%"
-                    }, 
-                    { 
-                    "display_id": "event2",
-                    "score": "65%"
-                    }
-                ]
-            }
-       page = "event_session"
-       status_code = 200
-       error_msg = ""
-       log_unstored_query_info_to_cloudwatch(
-           user_id, 
-           query_id, 
-           email_id, 
-           query_text, 
-           query_response, 
-           page, 
-           status_code, 
-           error_msg
-       )
-       log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{user_id}_{query_id}"
-       response = cloudwatch_log_client.describe_log_streams(logGroupName=CLOUDWATCH_LOG_GROUP_NAME)
-       assert any(stream["logStreamName"] == log_stream_name for stream in response["logStreams"])
+def log_unstored_query_info_to_cloudwatch(
+    user_id: str,
+    query_id: str,
+    email_id: str,
+    query_text: str,
+    query_response: dict,
+    page: str,
+    status_code: int,
+    query_response_time: float,
+    error_msg: str,
+) -> None:
+    """
+    Log unstored query information to Cloudwatch.
 
-def test_log_unstored_query_info_log_event_message(cloudwatch_log_client, ssm_client):
-   """Test that the log event contains the correct message data"""
-   from utility import log_unstored_query_info_to_cloudwatch
-   put_parameter_store_config(ssm_client=ssm_client, params=PARAMETER_STORE_PARAMS)
-   create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
-   with patch("utility.boto3.client") as mock_boto_client:
-       mock_boto_client.return_value = cloudwatch_log_client
-       user_id = "user123"
-       query_id = "1741854306879"
-       email_id = "user123@dummy.com"
-       query_text = "I want to see snow data"
-       query_response = {     
-                "total": 2, 
-                "internal_data": "Testing internal data",
-                "data": [ 
-                    { 
-                    "display_id": "event1",
-                    "score": "70%"
-                    }, 
-                    { 
-                    "display_id": "event2",
-                    "score": "65%"
-                    }
-                ]
-            }
-       page = "event_session"
-       status_code = 200
-       error_msg = ""
-       log_unstored_query_info_to_cloudwatch(
-           user_id, query_id, email_id, query_text, query_response, page, status_code, error_msg
-       )
-       log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{user_id}_{query_id}"
-       response = cloudwatch_log_client.get_log_events(
-           logGroupName= CLOUDWATCH_LOG_GROUP_NAME,
-           logStreamName=log_stream_name
-       )
-       assert len(response["events"]) > 0  
-    
-       actual_log_message = json.loads(response["events"][0]["message"])
-    
-       expected_log_message = {
-           "user_id": user_id,
-           "email_id": email_id,
-           "query_text": query_text,
-           "query_response": query_response,
-           "page": page,
-           "status_code": status_code,
-           "error_message": error_msg,
-           "internal_data": query_response.get("internal_data", ""),
-       }
-       assert actual_log_message == expected_log_message
+    Args:
+        user_id (str): The user making the request.
+        query_id (str): The query_id is the unique key required for DB.
+        email_id (str): User email id.
+        query_text (str): The query executed by the user.
+        query_response (dict): The query response against the query.
+        page (str): The page from which query was made.
+        status_code (int): HTTP status code.
+        query_response_time (float): response time.
+        error_msg (str): error message.
+    """
+    try:
+        ssm_client = client("ssm", region_name=REGION_NAME)
+        param_name = f"/{ENV}/CloudWatch/UserQueryInfo/LogGroupName"
+        ssm_response = ssm_client.get_parameter(Name=param_name)
+        log_group_name = ssm_response["Parameter"]["Value"]
+        log_stream_name = f"{log_group_name}/{user_id}_{query_id}"
+        logs = boto3.client('logs')
+        logs.create_log_stream(
+            logGroupName=log_group_name, logStreamName=log_stream_name
+        )
 
-@mock_aws
-def test_log_unstored_query_info_log_stream_creation_failure(cloudwatch_log_client, ssm_client):
-   """Test failure during log stream creation"""
-   from utility import log_unstored_query_info_to_cloudwatch
-   put_parameter_store_config(ssm_client=ssm_client, params=PARAMETER_STORE_PARAMS)
-   create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
-   with patch("utility.boto3.client") as mock_boto_client:
-       mock_boto_client.return_value = cloudwatch_log_client
-       user_id = "user123"
-       query_id = "1741854306879"
-       email_id = "user123@dummy.com"
-       query_text = "I want to see snow data"
-       query_response = {     
-                "total": 2, 
-                "internal_data": "Testing internal data",
-                "data": [ 
-                    { 
-                    "display_id": "event1",
-                    "score": "70%"
-                    }, 
-                    { 
-                    "display_id": "event2",
-                    "score": "65%"
-                    }
-                ]
-            }
-       page = "event_session"
-       status_code = 200
-       error_msg = ""
-       cloudwatch_log_client.create_log_stream = lambda *args, **kwargs: (_ for _ in ()).throw(Exception("Stream error"))
-       with patch("utility.logging.error") as mock_logging_error:
-        log_unstored_query_info_to_cloudwatch(
-            user_id, 
-            query_id, 
-            email_id, 
-            query_text, 
-            query_response, 
-            page, 
-            status_code, 
-            error_msg
+        log_event = {
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "message": json.dumps(
+                {
+                    "user_id": user_id,
+                    "email_id": email_id,
+                    "query_text": query_text,
+                    "query_response": query_response,
+                    "page": page,
+                    "status_code": status_code,
+                    "error_message": error_msg,
+                    "query_response_time": query_response_time,
+                    "internal_data": query_response.get("internal_data", ""),
+                }
+            ),
+        }
+        logs.put_log_events(
+            logGroupName=log_group_name,
+            logStreamName=log_stream_name,
+            logEvents=[log_event],
         )
-        mock_logging_error.assert_called_with("Error while logging query info to cloudwatch Stream error")
-        
-@mock_aws
-def test_log_unstored_query_info_log_event_failure(cloudwatch_log_client, ssm_client):
-   """Test failure during log event publishing"""
-   from utility import log_unstored_query_info_to_cloudwatch
-   put_parameter_store_config(ssm_client=ssm_client, params=PARAMETER_STORE_PARAMS)
-   create_cloudwatch_log_group(cloudwatch_log_client,CLOUDWATCH_LOG_GROUP_NAME)
-   with patch("utility.boto3.client") as mock_boto_client:
-       mock_boto_client.return_value = cloudwatch_log_client
-       user_id = "user123"
-       query_id = "1741854306879"
-       email_id = "user123@dummy.com"
-       query_text = "I want to see snow data"
-       query_response = {     
-                "total": 2, 
-                "internal_data": "Testing internal data",
-                "data": [ 
-                    { 
-                    "display_id": "event1",
-                    "score": "70%"
-                    }, 
-                    { 
-                    "display_id": "event2",
-                    "score": "65%"
-                    }
-                ]
-            }
-       page = "event_session"
-       status_code = 200
-       error_msg = ""
-       cloudwatch_log_client.put_log_events = lambda *args, **kwargs: (_ for _ in ()).throw(Exception("Event error"))
-       with patch("utility.logging.error") as mock_logging_error:
-        log_unstored_query_info_to_cloudwatch(
-            user_id, 
-            query_id, 
-            email_id, 
-            query_text, 
-            query_response, 
-            page, 
-            status_code, 
-            error_msg
+        logging.info("Logged unstored query information to cloudwatch.")
+    except Exception as e:
+        logging.error(f"Error while logging query info to cloudwatch {e}")
+
+
+def store_query_info(
+    user_id: str,
+    email_id: str,
+    query_text: str,
+    query_response: dict,
+    page: str,
+    status_code: int,
+    query_response_time: float,
+    error_msg: str,
+) -> None:
+    """
+    Store query information into DynamoDB Table.
+
+    Args:
+        user_id (str): The user making the request.
+        email_id (str): User email id.
+        query_text (str): The query executed by the user.
+        query_response (dict): The query response against the query.
+        page (str): The page from which query was made.
+        status_code (int): HTTP status code.
+        query_response_time (float): response time.
+        error_msg (str): error message.
+    """
+    query_response_time = decimal.Decimal(
+        str(query_response_time)
+    )  # type:ignore
+
+    try:
+        query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
+
+        item = {
+            "user_id": user_id,
+            "query_id": query_id,
+            "email_id": email_id,
+            "page": page,
+            "query_response": {
+                "data": query_response.get("data", []),
+                "total": query_response.get(
+                    "total", len(query_response.get("data", []))
+                ),
+            },
+            "status_code": status_code,
+            "query_text": query_text,
+            "query_response_time": query_response_time,
+            "error_message": error_msg,
+            "internal_data": query_response.get("internal_data", ""),
+        }
+        user_query_info_table.put_item(Item=item)  # type: ignore
+        logging.info(
+            f"Successfully stored query info for query_id: {query_id}"
         )
-        mock_logging_error.assert_called_with("Error while logging query info to cloudwatch Event error")
+    except Exception as e:
+        logging.error(f"Error while storing query info {e}")
+        log_unstored_query_info_to_cloudwatch(
+            user_id,
+            query_id,
+            email_id,
+            query_text,
+            query_response,
+            page,
+            status_code,
+            query_response_time,
+            error_msg,
+        )
+
+I just want to know that i have this two function and 
+i handle general exception is it really required to handle clienterror, keyerror and any other exception separately 
+Can you please verify this two functions what kind of exceptions wiil get if yes do need to handle it separately?
