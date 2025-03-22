@@ -1,65 +1,3 @@
-def log_unstored_query_info_to_cloudwatch(
-    user_id: str,
-    query_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-    status_code: int,
-    query_response_time: float,
-    error_msg: str,
-) -> None:
-    """
-    Log unstored query information to Cloudwatch.
-
-    Args:
-        user_id (str): The user making the request.
-        query_id (str): The query_id is the unique key required for DB.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
-        status_code (int): HTTP status code.
-        query_response_time (float): response time.
-        error_msg (str): error message.
-    """
-    try:
-        ssm_client = client("ssm", region_name=REGION_NAME)
-        param_name = f"/{ENV}/CloudWatch/UserQueryInfo/LogGroupName"
-        ssm_response = ssm_client.get_parameter(Name=param_name)
-        log_group_name = ssm_response["Parameter"]["Value"]
-        log_stream_name = f"{log_group_name}/{user_id}_{query_id}"
-        logs = boto3.client('logs')
-        logs.create_log_stream(
-            logGroupName=log_group_name, logStreamName=log_stream_name
-        )
-
-        log_event = {
-            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-            "message": json.dumps(
-                {
-                    "user_id": user_id,
-                    "email_id": email_id,
-                    "query_text": query_text,
-                    "query_response": query_response,
-                    "page": page,
-                    "status_code": status_code,
-                    "error_message": error_msg,
-                    "query_response_time": query_response_time,
-                    "internal_data": query_response.get("internal_data", ""),
-                }
-            ),
-        }
-        logs.put_log_events(
-            logGroupName=log_group_name,
-            logStreamName=log_stream_name,
-            logEvents=[log_event],
-        )
-        logging.info("Logged unstored query information to cloudwatch.")
-    except Exception as e:
-        logging.error(f"Error while logging query info to cloudwatch {e}")
-
-
 def store_query_info(
     user_id: str,
     email_id: str,
@@ -83,9 +21,15 @@ def store_query_info(
         query_response_time (float): response time.
         error_msg (str): error message.
     """
-    query_response_time = decimal.Decimal(
-        str(query_response_time)
-    )  # type:ignore
+    if isinstance(query_response_time, (int, float)):
+        query_response_time = decimal.Decimal(
+            str(query_response_time)
+        )  # type:ignore
+    else:
+        logging.error(
+           f"Invalid query response time format: {query_response_time}"
+        )
+        query_response_time = decimal.Decimal("0.0")  # type:ignore
 
     try:
         query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
@@ -111,8 +55,21 @@ def store_query_info(
         logging.info(
             f"Successfully stored query info for query_id: {query_id}"
         )
+    except ClientError as e:
+        logging.error(f"DynamoDB ClientError while storing query info {e}")
+        log_unstored_query_info_to_cloudwatch(
+            user_id,
+            query_id,
+            email_id,
+            query_text,
+            query_response,
+            page,
+            status_code,
+            query_response_time,
+            error_msg,
+        )
     except Exception as e:
-        logging.error(f"Error while storing query info {e}")
+        logging.error(f"Error occured while storing query info {e}")
         log_unstored_query_info_to_cloudwatch(
             user_id,
             query_id,
@@ -125,6 +82,90 @@ def store_query_info(
             error_msg,
         )
 
-I just want to know that i have this two function and 
-i handle general exception is it really required to handle clienterror, keyerror and any other exception separately 
-Can you please verify this two functions what kind of exceptions wiil get if yes do need to handle it separately?
+I have modified the code and i want to write a tets cases which are not written for the above function and update existing test cases also 
+please refer existing test cases below
+
+@mock_aws
+def test_store_query_info_success(setup_ddb_table, common_test_data):
+   """Test storing a successful query response in DynamoDB"""
+   from utility import store_query_info
+   query_info_table = setup_ddb_table
+   with patch("utility.user_query_info_table", query_info_table):
+       store_query_info(
+           common_test_data["user_id"],
+           common_test_data["email_id"],
+           common_test_data["query_text"],
+           common_test_data["query_response"],
+           common_test_data["page"],
+           200,
+           common_test_data["query_response_time"],
+           common_test_data["error_msg"]
+       )
+       items = query_info_table.scan()["Items"]
+       assert len(items) == 1
+       stored_item = items[0]
+       assert stored_item["user_id"] == common_test_data["user_id"]
+       assert stored_item["email_id"] == common_test_data["email_id"]
+       assert stored_item["query_text"] == common_test_data["query_text"]
+       assert stored_item["page"] == common_test_data["page"]
+       assert stored_item["status_code"] == 200
+       assert stored_item["query_response"]["total"] == 2
+       assert stored_item["query_response_time"] == common_test_data["query_response_time"]
+       assert stored_item["error_message"] == common_test_data["error_msg"]
+
+@mock_aws
+def test_store_query_info_with_error_message(setup_ddb_table, common_test_data):
+   """Test storing a query with an error message"""
+   from utility import store_query_info
+   query_info_table = setup_ddb_table
+   error_data = common_test_data.copy()
+   error_data.update({
+       "page": "drive_session",
+       "status_code": 400,
+       "query_response_time": 30.0,
+       "error_msg": "Request time out for Honda query API",
+       "query_response": {}  
+   })
+   with patch("utility.user_query_info_table", query_info_table):
+       store_query_info(
+           error_data["user_id"],
+           error_data["email_id"],
+           error_data["query_text"],
+           error_data["query_response"],
+           error_data["page"],
+           error_data["status_code"],
+           error_data["query_response_time"],
+           error_data["error_msg"]
+       )
+       items = query_info_table.scan()["Items"]
+       assert len(items) == 1
+       stored_item = items[0]
+       assert stored_item["user_id"] == error_data["user_id"]
+       assert stored_item["email_id"] == error_data["email_id"]
+       assert stored_item["query_text"] == error_data["query_text"]
+       assert stored_item["page"] == error_data["page"]
+       assert stored_item["status_code"] == error_data["status_code"]
+       assert stored_item["query_response"]["total"] == 0
+       assert stored_item["query_response_time"] == error_data["query_response_time"]
+       assert stored_item["error_message"] == error_data["error_msg"]
+
+@mock_aws
+def test_store_query_info_logging_on_exception(common_test_data):
+   """Test logging when an exception occurs"""
+   from utility import store_query_info
+   with patch("utility.user_query_info_table.put_item", side_effect=Exception("DynamoDB error")), \
+        patch("utility.logging.error") as mock_log_error, \
+        patch("utility.log_unstored_query_info_to_cloudwatch") as mock_cloudwatch:
+       store_query_info(
+           common_test_data["user_id"],
+           common_test_data["email_id"],
+           common_test_data["query_text"],
+           common_test_data["query_response"],
+           "drive_session",
+           400,
+           30.0,
+           "Request time out for Honda query API"
+       )
+       mock_log_error.assert_called_once_with("Error while storing query info DynamoDB error")
+       mock_cloudwatch.assert_called_once()
+
