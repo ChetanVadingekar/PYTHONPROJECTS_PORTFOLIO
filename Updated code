@@ -1,153 +1,78 @@
-def log_unstored_query_info_to_cloudwatch(
-    user_id: str,
-    query_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-    status_code: int,
-    query_response_time: float,
-    error_msg: str,
-) -> None:
-    """
-    Log unstored query information to Cloudwatch.
 
-    Args:
-        user_id (str): The user making the request.
-        query_id (str): The query_id is the unique key required for DB.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
-        status_code (int): HTTP status code.
-        query_response_time (float): response time.
-        error_msg (str): error message.
-    """
-    try:
-        ssm_client = client("ssm", region_name=REGION_NAME)
-        param_name = f"/{ENV}/CloudWatch/UserQueryInfo/LogGroupName"
-        ssm_response = ssm_client.get_parameter(Name=param_name)
-        log_group_name = ssm_response["Parameter"]["Value"]
-        log_stream_name = f"{log_group_name}/{user_id}_{query_id}"
-        logs = boto3.client('logs')
-        logs.create_log_stream(
-            logGroupName=log_group_name, logStreamName=log_stream_name
-        )
+@pytest.fixture(scope="function")
+def ssm_client(aws_credentials):
+    """Create a boto3 ssm client."""
+    with mock_aws():
+        ssm_client = boto3.client("ssm", region_name="ap-northeast-1")
+        yield ssm_client
 
-        log_event = {
-            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-            "message": json.dumps(
-                {
-                    "user_id": user_id,
-                    "email_id": email_id,
-                    "query_text": query_text,
-                    "query_response": query_response,
-                    "page": page,
-                    "status_code": status_code,
-                    "error_message": error_msg,
-                    "query_response_time": query_response_time,
-                    "internal_data": query_response.get("internal_data", ""),
-                }
-            ),
-        }
-        logs.put_log_events(
-            logGroupName=log_group_name,
-            logStreamName=log_stream_name,
-            logEvents=[log_event],
-        )
-        logging.info("Logged unstored query information to cloudwatch.")
-    except ClientError as e:
-       logging.error(f"AWS ClientError while logging to CloudWatch: {e}")
-    except KeyError:
-       logging.error(
-           f"SSM response missing 'Parameter' or 'Value' for {param_name}."
-       )
-    except json.JSONDecodeError as e:
-       logging.error(f"JSON serialization error: {e}")
-    except Exception as e:
-        logging.error(
-            f"Error Occured while logging query info to cloudwatch {e}"
-            )
-
-I have modified the code and i want to write a tets cases which are not written for the above function and update existing test cases also 
-please refer existing test cases below
+@pytest.fixture
+def setup_cloudwatch(cloudwatch_log_client, ssm_client):
+   """Fixture to set up CloudWatch and SSM before each test."""
+   put_parameter_store_config(ssm_client, PARAMETER_STORE_PARAMS)
+   create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
+   return cloudwatch_log_client
 
 @mock_aws
-def test_log_unstored_query_info_success(setup_cloudwatch, common_test_data):
-   """Test successful logging to CloudWatch"""
-   from utility import log_unstored_query_info_to_cloudwatch
+def test_log_unstored_query_info_ssm_failure(setup_cloudwatch, ssm_client, common_test_data):
+   """Test failure when SSM parameter retrieval fails"""
    cloudwatch_log_client = setup_cloudwatch
-   with patch("utility.boto3.client", return_value=cloudwatch_log_client):
+   from utility import log_unstored_query_info_to_cloudwatch
+   with patch("utility.logging.error") as mock_logging_error:
+       ssm_client.get_parameter.side_effect = KeyError("SSM Error")
        common_query_data = common_test_data.copy()
        common_query_data.update({
             "query_id": "test_query_id",
             "status_code": 200
         })
        log_unstored_query_info_to_cloudwatch(**common_query_data)
-       log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{common_query_data['user_id']}_{common_query_data['query_id']}"
-       response = cloudwatch_log_client.describe_log_streams(logGroupName=CLOUDWATCH_LOG_GROUP_NAME)
-       assert any(stream["logStreamName"] == log_stream_name for stream in response["logStreams"])
+       print(f"mock error ssm failure : {mock_logging_error.call_args[0][0]}")
+       mock_logging_error.assert_called_with(
+           "AWS ClientError while logging to CloudWatch An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Dev/CloudWatch/UserQueryInfo/LogGroupName not found"
+       )
 
 @mock_aws
-def test_log_unstored_query_info_log_event_message(setup_cloudwatch, common_test_data):
-   """Test that the log event contains the correct message data"""
+def test_log_unstored_query_info_ssm_missing_key(setup_cloudwatch, ssm_client, common_test_data):
+   """Test failure when SSM response is missing 'Parameter' or 'Value'"""
    from utility import log_unstored_query_info_to_cloudwatch
    cloudwatch_log_client = setup_cloudwatch
-   with patch("utility.boto3.client", return_value=cloudwatch_log_client):
-    common_query_data = common_test_data.copy()
-    common_query_data.update({
-         "query_id": "test_query_id",
-         "status_code": 200
-     })
-    log_unstored_query_info_to_cloudwatch(**common_query_data)
-    log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{common_query_data['user_id']}_{common_query_data['query_id']}"
-    response = cloudwatch_log_client.get_log_events(
-        logGroupName=CLOUDWATCH_LOG_GROUP_NAME,
-        logStreamName=log_stream_name
-    )
-    assert len(response["events"]) > 0  
-    actual_log_message = json.loads(response["events"][0]["message"])
-    expected_log_message = {
-        "user_id": common_test_data["user_id"],
-        "email_id": common_test_data["email_id"],
-        "query_text": common_test_data["query_text"],
-        "query_response": common_test_data["query_response"],
-        "page": common_test_data["page"],
-        "status_code": common_query_data["status_code"],
-        "query_response_time": common_test_data["query_response_time"],
-        "error_message": common_test_data["error_msg"],
-        "internal_data": common_test_data["query_response"].get("internal_data", ""),
-    }
-    assert actual_log_message == expected_log_message
-
-@mock_aws
-def test_log_unstored_query_info_log_stream_creation_failure(setup_cloudwatch, common_test_data):
-   """Test failure during log stream creation"""
-   from utility import log_unstored_query_info_to_cloudwatch
-   cloudwatch_log_client = setup_cloudwatch
-   cloudwatch_log_client.create_log_stream = lambda *args, **kwargs: (_ for _ in ()).throw(Exception("Stream error"))
-   with patch("utility.boto3.client", return_value=cloudwatch_log_client), \
-        patch("utility.logging.error") as mock_logging_error:
+   with patch("utility.logging.error") as mock_logging_error:
+       ssm_client.get_parameter.return_value = {}
        common_query_data = common_test_data.copy()
        common_query_data.update({
             "query_id": "test_query_id",
-            "status_code": 400
+            "status_code": 200
         })
        log_unstored_query_info_to_cloudwatch(**common_query_data)
-       mock_logging_error.assert_called_with("Error Occured while logging query info to cloudwatch Stream error")
+       print(f"mock error ssm missing key: {mock_logging_error.call_args[0][0]}")
+       mock_logging_error.assert_called_with(
+           "AWS ClientError while logging to CloudWatch An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Dev/CloudWatch/UserQueryInfo/LogGroupName not found."
+       )
 
 @mock_aws
-def test_log_unstored_query_info_log_event_failure(setup_cloudwatch, common_test_data):
-    """Test failure during log event publishing"""
-    from utility import log_unstored_query_info_to_cloudwatch
-    cloudwatch_log_client = setup_cloudwatch
-    cloudwatch_log_client.put_log_events = lambda *args, **kwargs: (_ for _ in ()).throw(Exception("Event error"))
-    with patch("utility.boto3.client", return_value=cloudwatch_log_client), \
-        patch("utility.logging.error") as mock_logging_error:
-        common_query_data = common_test_data.copy()
-        common_query_data.update({
+def test_log_unstored_query_info_client_error(setup_cloudwatch,common_test_data):
+   """Test failure when AWS ClientError occurs"""
+   cloudwatch_log_client = setup_cloudwatch
+   from utility import log_unstored_query_info_to_cloudwatch
+   from botocore.exceptions import ClientError
+   with patch("utility.logging.error") as mock_logging_error:
+       cloudwatch_log_client.put_log_events.side_effect = ClientError(
+           {"Error": {"Code": "AccessDenied", "Message": "Permission Denied"}}, "PutLogEvents"
+       )
+       common_query_data = common_test_data.copy()
+       common_query_data.update({
             "query_id": "test_query_id",
-            "status_code": 400
+            "status_code": 200
         })
-        log_unstored_query_info_to_cloudwatch(**common_query_data)
-        mock_logging_error.assert_called_with("Error Occured while logging query info to cloudwatch Event error")
+       log_unstored_query_info_to_cloudwatch(**common_query_data)
+       print(f"mock error client error: {mock_logging_error.call_args[0][0]}")
+       mock_logging_error.assert_called_with(
+           "AWS ClientError while logging to CloudWatch An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Dev/CloudWatch/UserQueryInfo/LogGroupName not found."
+       )
+
+for this test i am getting below error please fix this 
+
+FAILED tests/test_utility.py::test_log_unstored_query_info_ssm_failure - AttributeError: 'method' object has no attribute 'side_effect'
+FAILED tests/test_utility.py::test_log_unstored_query_info_ssm_missing_key - AttributeError: 'method' object has no attribute 'return_value'
+FAILED tests/test_utility.py::test_log_unstored_query_info_client_error - AttributeError: 'method' object has no attribute 'side_effect'
+
