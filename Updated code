@@ -1,5 +1,6 @@
-def store_query_info(
+def log_unstored_query_info_to_cloudwatch(
     user_id: str,
+    query_id: str,
     email_id: str,
     query_text: str,
     query_response: dict,
@@ -9,10 +10,11 @@ def store_query_info(
     error_msg: str,
 ) -> None:
     """
-    Store query information into DynamoDB Table.
+    Log unstored query information to Cloudwatch.
 
     Args:
         user_id (str): The user making the request.
+        query_id (str): The query_id is the unique key required for DB.
         email_id (str): User email id.
         query_text (str): The query executed by the user.
         query_response (dict): The query response against the query.
@@ -21,151 +23,131 @@ def store_query_info(
         query_response_time (float): response time.
         error_msg (str): error message.
     """
-    if isinstance(query_response_time, (int, float)):
-        query_response_time = decimal.Decimal(
-            str(query_response_time)
-        )  # type:ignore
-    else:
-        logging.error(
-           f"Invalid query response time format: {query_response_time}"
-        )
-        query_response_time = decimal.Decimal("0.0")  # type:ignore
-
     try:
-        query_id = str(int(datetime.now(timezone.utc).timestamp() * 1000))
+        ssm_client = client("ssm", region_name=REGION_NAME)
+        param_name = f"/{ENV}/CloudWatch/UserQueryInfo/LogGroupName"
+        ssm_response = ssm_client.get_parameter(Name=param_name)
+        log_group_name = ssm_response["Parameter"]["Value"]
+        log_stream_name = f"{log_group_name}/{user_id}_{query_id}"
+        logs = boto3.client('logs')
+        logs.create_log_stream(
+            logGroupName=log_group_name, logStreamName=log_stream_name
+        )
 
-        item = {
-            "user_id": user_id,
-            "query_id": query_id,
-            "email_id": email_id,
-            "page": page,
-            "query_response": {
-                "data": query_response.get("data", []),
-                "total": query_response.get(
-                    "total", len(query_response.get("data", []))
-                ),
-            },
-            "status_code": status_code,
-            "query_text": query_text,
-            "query_response_time": query_response_time,
-            "error_message": error_msg,
-            "internal_data": query_response.get("internal_data", ""),
+        log_event = {
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "message": json.dumps(
+                {
+                    "user_id": user_id,
+                    "email_id": email_id,
+                    "query_text": query_text,
+                    "query_response": query_response,
+                    "page": page,
+                    "status_code": status_code,
+                    "error_message": error_msg,
+                    "query_response_time": query_response_time,
+                    "internal_data": query_response.get("internal_data", ""),
+                }
+            ),
         }
-        user_query_info_table.put_item(Item=item)  # type: ignore
-        logging.info(
-            f"Successfully stored query info for query_id: {query_id}"
+        logs.put_log_events(
+            logGroupName=log_group_name,
+            logStreamName=log_stream_name,
+            logEvents=[log_event],
         )
+        logging.info("Logged unstored query information to cloudwatch.")
     except ClientError as e:
-        logging.error(f"DynamoDB ClientError while storing query info {e}")
-        log_unstored_query_info_to_cloudwatch(
-            user_id,
-            query_id,
-            email_id,
-            query_text,
-            query_response,
-            page,
-            status_code,
-            query_response_time,
-            error_msg,
-        )
+       logging.error(f"AWS ClientError while logging to CloudWatch: {e}")
+    except KeyError:
+       logging.error(
+           f"SSM response missing 'Parameter' or 'Value' for {param_name}."
+       )
+    except json.JSONDecodeError as e:
+       logging.error(f"JSON serialization error: {e}")
     except Exception as e:
-        logging.error(f"Error occured while storing query info {e}")
-        log_unstored_query_info_to_cloudwatch(
-            user_id,
-            query_id,
-            email_id,
-            query_text,
-            query_response,
-            page,
-            status_code,
-            query_response_time,
-            error_msg,
-        )
+        logging.error(
+            f"Error Occured while logging query info to cloudwatch {e}"
+            )
 
 I have modified the code and i want to write a tets cases which are not written for the above function and update existing test cases also 
 please refer existing test cases below
 
 @mock_aws
-def test_store_query_info_success(setup_ddb_table, common_test_data):
-   """Test storing a successful query response in DynamoDB"""
-   from utility import store_query_info
-   query_info_table = setup_ddb_table
-   with patch("utility.user_query_info_table", query_info_table):
-       store_query_info(
-           common_test_data["user_id"],
-           common_test_data["email_id"],
-           common_test_data["query_text"],
-           common_test_data["query_response"],
-           common_test_data["page"],
-           200,
-           common_test_data["query_response_time"],
-           common_test_data["error_msg"]
-       )
-       items = query_info_table.scan()["Items"]
-       assert len(items) == 1
-       stored_item = items[0]
-       assert stored_item["user_id"] == common_test_data["user_id"]
-       assert stored_item["email_id"] == common_test_data["email_id"]
-       assert stored_item["query_text"] == common_test_data["query_text"]
-       assert stored_item["page"] == common_test_data["page"]
-       assert stored_item["status_code"] == 200
-       assert stored_item["query_response"]["total"] == 2
-       assert stored_item["query_response_time"] == common_test_data["query_response_time"]
-       assert stored_item["error_message"] == common_test_data["error_msg"]
+def test_log_unstored_query_info_success(setup_cloudwatch, common_test_data):
+   """Test successful logging to CloudWatch"""
+   from utility import log_unstored_query_info_to_cloudwatch
+   cloudwatch_log_client = setup_cloudwatch
+   with patch("utility.boto3.client", return_value=cloudwatch_log_client):
+       common_query_data = common_test_data.copy()
+       common_query_data.update({
+            "query_id": "test_query_id",
+            "status_code": 200
+        })
+       log_unstored_query_info_to_cloudwatch(**common_query_data)
+       log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{common_query_data['user_id']}_{common_query_data['query_id']}"
+       response = cloudwatch_log_client.describe_log_streams(logGroupName=CLOUDWATCH_LOG_GROUP_NAME)
+       assert any(stream["logStreamName"] == log_stream_name for stream in response["logStreams"])
 
 @mock_aws
-def test_store_query_info_with_error_message(setup_ddb_table, common_test_data):
-   """Test storing a query with an error message"""
-   from utility import store_query_info
-   query_info_table = setup_ddb_table
-   error_data = common_test_data.copy()
-   error_data.update({
-       "page": "drive_session",
-       "status_code": 400,
-       "query_response_time": 30.0,
-       "error_msg": "Request time out for Honda query API",
-       "query_response": {}  
-   })
-   with patch("utility.user_query_info_table", query_info_table):
-       store_query_info(
-           error_data["user_id"],
-           error_data["email_id"],
-           error_data["query_text"],
-           error_data["query_response"],
-           error_data["page"],
-           error_data["status_code"],
-           error_data["query_response_time"],
-           error_data["error_msg"]
-       )
-       items = query_info_table.scan()["Items"]
-       assert len(items) == 1
-       stored_item = items[0]
-       assert stored_item["user_id"] == error_data["user_id"]
-       assert stored_item["email_id"] == error_data["email_id"]
-       assert stored_item["query_text"] == error_data["query_text"]
-       assert stored_item["page"] == error_data["page"]
-       assert stored_item["status_code"] == error_data["status_code"]
-       assert stored_item["query_response"]["total"] == 0
-       assert stored_item["query_response_time"] == error_data["query_response_time"]
-       assert stored_item["error_message"] == error_data["error_msg"]
+def test_log_unstored_query_info_log_event_message(setup_cloudwatch, common_test_data):
+   """Test that the log event contains the correct message data"""
+   from utility import log_unstored_query_info_to_cloudwatch
+   cloudwatch_log_client = setup_cloudwatch
+   with patch("utility.boto3.client", return_value=cloudwatch_log_client):
+    common_query_data = common_test_data.copy()
+    common_query_data.update({
+         "query_id": "test_query_id",
+         "status_code": 200
+     })
+    log_unstored_query_info_to_cloudwatch(**common_query_data)
+    log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{common_query_data['user_id']}_{common_query_data['query_id']}"
+    response = cloudwatch_log_client.get_log_events(
+        logGroupName=CLOUDWATCH_LOG_GROUP_NAME,
+        logStreamName=log_stream_name
+    )
+    assert len(response["events"]) > 0  
+    actual_log_message = json.loads(response["events"][0]["message"])
+    expected_log_message = {
+        "user_id": common_test_data["user_id"],
+        "email_id": common_test_data["email_id"],
+        "query_text": common_test_data["query_text"],
+        "query_response": common_test_data["query_response"],
+        "page": common_test_data["page"],
+        "status_code": common_query_data["status_code"],
+        "query_response_time": common_test_data["query_response_time"],
+        "error_message": common_test_data["error_msg"],
+        "internal_data": common_test_data["query_response"].get("internal_data", ""),
+    }
+    assert actual_log_message == expected_log_message
 
 @mock_aws
-def test_store_query_info_logging_on_exception(common_test_data):
-   """Test logging when an exception occurs"""
-   from utility import store_query_info
-   with patch("utility.user_query_info_table.put_item", side_effect=Exception("DynamoDB error")), \
-        patch("utility.logging.error") as mock_log_error, \
-        patch("utility.log_unstored_query_info_to_cloudwatch") as mock_cloudwatch:
-       store_query_info(
-           common_test_data["user_id"],
-           common_test_data["email_id"],
-           common_test_data["query_text"],
-           common_test_data["query_response"],
-           "drive_session",
-           400,
-           30.0,
-           "Request time out for Honda query API"
-       )
-       mock_log_error.assert_called_once_with("Error while storing query info DynamoDB error")
-       mock_cloudwatch.assert_called_once()
+def test_log_unstored_query_info_log_stream_creation_failure(setup_cloudwatch, common_test_data):
+   """Test failure during log stream creation"""
+   from utility import log_unstored_query_info_to_cloudwatch
+   cloudwatch_log_client = setup_cloudwatch
+   cloudwatch_log_client.create_log_stream = lambda *args, **kwargs: (_ for _ in ()).throw(Exception("Stream error"))
+   with patch("utility.boto3.client", return_value=cloudwatch_log_client), \
+        patch("utility.logging.error") as mock_logging_error:
+       common_query_data = common_test_data.copy()
+       common_query_data.update({
+            "query_id": "test_query_id",
+            "status_code": 400
+        })
+       log_unstored_query_info_to_cloudwatch(**common_query_data)
+       mock_logging_error.assert_called_with("Error Occured while logging query info to cloudwatch Stream error")
 
+@mock_aws
+def test_log_unstored_query_info_log_event_failure(setup_cloudwatch, common_test_data):
+    """Test failure during log event publishing"""
+    from utility import log_unstored_query_info_to_cloudwatch
+    cloudwatch_log_client = setup_cloudwatch
+    cloudwatch_log_client.put_log_events = lambda *args, **kwargs: (_ for _ in ()).throw(Exception("Event error"))
+    with patch("utility.boto3.client", return_value=cloudwatch_log_client), \
+        patch("utility.logging.error") as mock_logging_error:
+        common_query_data = common_test_data.copy()
+        common_query_data.update({
+            "query_id": "test_query_id",
+            "status_code": 400
+        })
+        log_unstored_query_info_to_cloudwatch(**common_query_data)
+        mock_logging_error.assert_called_with("Error Occured while logging query info to cloudwatch Event error")
