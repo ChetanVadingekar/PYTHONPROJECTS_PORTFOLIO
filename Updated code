@@ -1,78 +1,132 @@
+utility.py
 
-@pytest.fixture(scope="function")
-def ssm_client(aws_credentials):
-    """Create a boto3 ssm client."""
-    with mock_aws():
-        ssm_client = boto3.client("ssm", region_name="ap-northeast-1")
-        yield ssm_client
+def log_unstored_query_info_to_cloudwatch(
+    user_id: str,
+    query_id: str,
+    email_id: str,
+    query_text: str,
+    query_response: dict,
+    page: str,
+    status_code: int,
+    query_response_time: float,
+    error_msg: str,
+) -> None:
+    """
+    Log unstored query information to Cloudwatch.
 
-@pytest.fixture
-def setup_cloudwatch(cloudwatch_log_client, ssm_client):
-   """Fixture to set up CloudWatch and SSM before each test."""
-   put_parameter_store_config(ssm_client, PARAMETER_STORE_PARAMS)
-   create_cloudwatch_log_group(cloudwatch_log_client, CLOUDWATCH_LOG_GROUP_NAME)
-   return cloudwatch_log_client
+    Args:
+        user_id (str): The user making the request.
+        query_id (str): The query_id is the unique key required for DB.
+        email_id (str): User email id.
+        query_text (str): The query executed by the user.
+        query_response (dict): The query response against the query.
+        page (str): The page from which query was made.
+        status_code (int): HTTP status code.
+        query_response_time (float): response time.
+        error_msg (str): error message.
+    """
+    try:
+        ssm_client = client("ssm", region_name=REGION_NAME)
+        param_name = f"/{ENV}/CloudWatch/UserQueryInfo/LogGroupName"
+        ssm_response = ssm_client.get_parameter(Name=param_name)
+        log_group_name = ssm_response["Parameter"]["Value"]
+        log_stream_name = f"{log_group_name}/{user_id}_{query_id}"
+        logs = boto3.client('logs')
+        logs.create_log_stream(
+            logGroupName=log_group_name, logStreamName=log_stream_name
+        )
 
-@mock_aws
-def test_log_unstored_query_info_ssm_failure(setup_cloudwatch, ssm_client, common_test_data):
-   """Test failure when SSM parameter retrieval fails"""
-   cloudwatch_log_client = setup_cloudwatch
-   from utility import log_unstored_query_info_to_cloudwatch
-   with patch("utility.logging.error") as mock_logging_error:
-       ssm_client.get_parameter.side_effect = KeyError("SSM Error")
-       common_query_data = common_test_data.copy()
-       common_query_data.update({
-            "query_id": "test_query_id",
-            "status_code": 200
-        })
-       log_unstored_query_info_to_cloudwatch(**common_query_data)
-       print(f"mock error ssm failure : {mock_logging_error.call_args[0][0]}")
-       mock_logging_error.assert_called_with(
-           "AWS ClientError while logging to CloudWatch An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Dev/CloudWatch/UserQueryInfo/LogGroupName not found"
-       )
+        log_event = {
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "message": json.dumps(
+                {
+                    "user_id": user_id,
+                    "email_id": email_id,
+                    "query_text": query_text,
+                    "query_response": query_response,
+                    "page": page,
+                    "status_code": status_code,
+                    "error_message": error_msg,
+                    "query_response_time": query_response_time,
+                    "internal_data": query_response.get("internal_data", ""),
+                }
+            ),
+        }
+        logs.put_log_events(
+            logGroupName=log_group_name,
+            logStreamName=log_stream_name,
+            logEvents=[log_event],
+        )
+        logging.info("Logged unstored query information to cloudwatch.")
+    except ClientError as e:
+        logging.error(f"AWS ClientError while logging to CloudWatch {e}")
+    except Exception as e:
+        logging.error(
+            f"Error Occured while logging query info to cloudwatch {e}"
+        )
 
-@mock_aws
-def test_log_unstored_query_info_ssm_missing_key(setup_cloudwatch, ssm_client, common_test_data):
-   """Test failure when SSM response is missing 'Parameter' or 'Value'"""
-   from utility import log_unstored_query_info_to_cloudwatch
-   cloudwatch_log_client = setup_cloudwatch
-   with patch("utility.logging.error") as mock_logging_error:
-       ssm_client.get_parameter.return_value = {}
-       common_query_data = common_test_data.copy()
-       common_query_data.update({
-            "query_id": "test_query_id",
-            "status_code": 200
-        })
-       log_unstored_query_info_to_cloudwatch(**common_query_data)
-       print(f"mock error ssm missing key: {mock_logging_error.call_args[0][0]}")
-       mock_logging_error.assert_called_with(
-           "AWS ClientError while logging to CloudWatch An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Dev/CloudWatch/UserQueryInfo/LogGroupName not found."
-       )
+I got the review comment on this function
 
-@mock_aws
-def test_log_unstored_query_info_client_error(setup_cloudwatch,common_test_data):
-   """Test failure when AWS ClientError occurs"""
-   cloudwatch_log_client = setup_cloudwatch
-   from utility import log_unstored_query_info_to_cloudwatch
-   from botocore.exceptions import ClientError
-   with patch("utility.logging.error") as mock_logging_error:
-       cloudwatch_log_client.put_log_events.side_effect = ClientError(
-           {"Error": {"Code": "AccessDenied", "Message": "Permission Denied"}}, "PutLogEvents"
-       )
-       common_query_data = common_test_data.copy()
-       common_query_data.update({
-            "query_id": "test_query_id",
-            "status_code": 200
-        })
-       log_unstored_query_info_to_cloudwatch(**common_query_data)
-       print(f"mock error client error: {mock_logging_error.call_args[0][0]}")
-       mock_logging_error.assert_called_with(
-           "AWS ClientError while logging to CloudWatch An error occurred (ParameterNotFound) when calling the GetParameter operation: Parameter /Dev/CloudWatch/UserQueryInfo/LogGroupName not found."
-       )
+There was a watch tower initialization in the main.py. Please utilize this to send the logs to cloudwatch. Please refer the below github page for your reference https://github.com/kislyuk/watchtower
 
-for this test i am getting below error please fix this 
+utility.py
 
-FAILED tests/test_utility.py::test_log_unstored_query_info_ssm_failure - AttributeError: 'method' object has no attribute 'side_effect'
-FAILED tests/test_utility.py::test_log_unstored_query_info_ssm_missing_key - AttributeError: 'method' object has no attribute 'return_value'
-FAILED tests/test_utility.py::test_log_unstored_query_info_client_error - AttributeError: 'method' object has no attribute 'side_effect'
+def get_api_request_log_group_name() -> str:
+    """
+    Get cloudwatch log group name for api logging.
 
+    Returns:
+        str: CloudWatch Log group name for API logging
+
+    Raises:
+        ssm_client.exceptions.InternalServerError: AWS service is down
+        ssm_client.exceptions.ParameterNotFound: Parameter not found in
+                                                    ParameterStore
+    """
+    ssm_client = client("ssm", region_name=REGION_NAME)
+    param_name = f"/{ENV}/APILogging/CloudWatch/LogGroupName"
+    try:
+        response = ssm_client.get_parameter(Name=param_name)
+
+        log_group_name = response["Parameter"]["Value"]
+
+        logging.info(
+            f"Fetched CloudWatch Group for " f"API logging: {log_group_name}"
+        )
+
+        return log_group_name
+
+    except ssm_client.exceptions.ParameterNotFound:
+        logging.error(f"Parameter {param_name} not found in Parameter Store")
+        raise
+
+    except ssm_client.exceptions.InternalServerError:
+        logging.error("AWS service: SystemManager ParameterStore issues")
+        raise
+
+main.py
+
+API_LOG_GROUP_NAME = get_api_request_log_group_name()
+API_LOG_STREAM_NAME = f'{datetime.now().strftime("%Y/%m/%dT%H-%M")}'
+
+formatter = '[%(levelname)s] - %(asctime)s - %(name)s - %(message)s'
+logging.basicConfig(
+    level=logging.INFO,
+    format=formatter,
+    force=True,
+)
+
+request_logger = logging.getLogger("API-Log")
+request_logger.setLevel(logging.INFO)
+cloudwatch_handler = watchtower.CloudWatchLogHandler(
+    log_group_name=API_LOG_GROUP_NAME,
+    log_stream_name=API_LOG_STREAM_NAME,
+    boto3_client=boto3.client("logs", region_name=REGION_NAME),
+)
+cloudwatch_handler.setFormatter(logging.Formatter(formatter))
+request_logger.addHandler(cloudwatch_handler)
+
+
+we have this existing code in the main.py file
+
+Is it possible to utilize that logic it in our function. 
