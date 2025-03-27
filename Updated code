@@ -1,33 +1,67 @@
-def is_valid_url(url: str) -> bool:
+def get_cloudwatch_log_group_name(param_suffix: str) -> str:
     """
-    Validate if the provided string is a valid URL.
+    Get CloudWatch log group name dynamically from AWS SSM Parameter Store.
 
     Args:
-        url (str): The URL to validate.
+        param_suffix (str): The suffix of the SSM parameter name.
 
     Returns:
-        bool: True if the URL is valid, False otherwise.
+        str: CloudWatch Log group name.
+
+    Raises:
+        ssm_client.exceptions.InternalServerError: AWS service is down
+        ssm_client.exceptions.ParameterNotFound: Parameter not found in
+                                                    ParameterStore
     """
+    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
     try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except Exception:
-        return False
+        param_name = f"/{ENV}{param_suffix}"
+        response = ssm_client.get_parameter(Name=param_name)
+        log_group_name = response["Parameter"]["Value"]
+        logging.info(
+            f"Fetched CloudWatch Log Group:{log_group_name} Param:{param_name}"
+        )
+        return log_group_name
 
-for the above function success test case is cover but exception test case is not covered please update it 
+    except ssm_client.exceptions.ParameterNotFound:
+        logging.error(f"Parameter {param_name} not found in Parameter Store")
+        raise
 
-def test_is_valid_url_True(ssm_client):
+    except ssm_client.exceptions.InternalServerError:
+        logging.error("AWS service: SystemManager ParameterStore issues")
+        raise
 
-    """Test case for is_valid_url True"""
 
-    from utility import is_valid_url
-    result = is_valid_url("http://127.0.0.1:2000/filter-description-api")
-    assert result == True
+we have this above function and we have written few test cases see below For youre reference 
 
-def test_is_valid_url_False(ssm_client):
+@mock_aws
+def test_get_cloudwatch_log_group_name(ssm_client):
+    """Test API Logging CW log group name success response"""
+    log_group_name = "/custom/APIlogging"
+    params = [{
+        "DataType": "text",
+        "Type": "String",
+        "Name": f"/{ENV}/APILogging/CloudWatch/LogGroupName",
+        "Value": log_group_name
+    }]
+    put_parameter_store_config(ssm_client=ssm_client, params=params)
 
-    """Test case for is_valid_url True"""
+    from utility import get_cloudwatch_log_group_name
+    param_name = "/APILogging/CloudWatch/LogGroupName"
+    assert log_group_name == get_cloudwatch_log_group_name(param_name)
 
-    from utility import is_valid_url
-    result = is_valid_url("filter-description-api")
-    assert result == False
+
+@mock_aws
+def test_get_cloudwatch_log_group_name_error_response(ssm_client):
+    """Test API Logging CW log group name: ParameterNotFound error response"""
+    put_parameter_store_config(ssm_client=ssm_client,
+                               params=PARAMETER_STORE_PARAMS)
+
+    from utility import get_cloudwatch_log_group_name
+
+    param_name = "/APILogging/CloudWatch/LogGroupName"
+    with pytest.raises(ssm_client.exceptions.ParameterNotFound) as excinfo:
+        _ = get_cloudwatch_log_group_name(param_name)
+
+
+please cover this test case
