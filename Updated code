@@ -1,66 +1,45 @@
-def log_unstored_query_info_to_cloudwatch(
-    user_id: str,
-    query_id: str,
-    email_id: str,
-    query_text: str,
-    query_response: dict,
-    page: str,
-    status_code: int,
-    query_response_time: float,
-    error_msg: str,
-    project_name: str,
-) -> None:
-    """
-    Log unstored query information to Cloudwatch.
+@patch("utility.get_cloudwatch_log_group_name")
+@patch("utility.boto3.client")
+@patch("utility.watchtower.CloudWatchLogHandler")
+@patch("utility.logging.getLogger")
+def test_log_unstored_query_info_success( 
+    mock_watchtower_handler, 
+    mock_boto_client, 
+    mock_get_log_group,
+    mock_get_logger,
+    common_test_data
+    ):
+   """Test successful logging to CloudWatch"""
+   from utility import log_unstored_query_info_to_cloudwatch
+   mock_get_log_group.return_value = CLOUDWATCH_LOG_GROUP_NAME
+   mock_logger = MagicMock()
+   mock_get_logger.return_value = mock_logger
+   common_query_data = common_test_data.copy()
+   common_query_data.update({
+            "query_id": "test_query_id",
+            "status_code": 200
+    })
+   log_unstored_query_info_to_cloudwatch(**common_query_data)
+   log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{common_query_data['user_id']}_{common_query_data['query_id']}"
+   mock_watchtower_handler.assert_called_once_with(
+       log_group_name= CLOUDWATCH_LOG_GROUP_NAME,
+       log_stream_name=log_stream_name,
+       boto3_client=mock_boto_client.return_value,
+   )
 
-    Args:
-        user_id (str): The user making the request.
-        query_id (str): The query_id is the unique key required for DB.
-        email_id (str): User email id.
-        query_text (str): The query executed by the user.
-        query_response (dict): The query response against the query.
-        page (str): The page from which query was made.
-        status_code (int): HTTP status code.
-        query_response_time (float): response time.
-        error_msg (str): error message.
-        project_name (str): project_name
-    """
-    try:
-        log_group_name = get_cloudwatch_log_group_name(
-            "/CloudWatch/UserQueryInfo/LogGroupName"
-        )
-        log_stream_name = f"{log_group_name}/{user_id}_{query_id}"
-
-        cloudwatch_handler = watchtower.CloudWatchLogHandler(
-            log_group_name=log_group_name,
-            log_stream_name=log_stream_name,
-            boto3_client=boto3.client("logs", region_name=REGION_NAME),
-        )
-
-        request_logger = logging.getLogger("CloudWatchLogger")
-        request_logger.setLevel(logging.INFO)
-        request_logger.addHandler(cloudwatch_handler)
-        log_data = {
-            "user_id": user_id,
-            "email_id": email_id,
-            "query_text": query_text,
-            "query_response": query_response,
-            "page": page,
-            "status_code": status_code,
-            "error_message": error_msg,
-            "query_response_time": str(query_response_time),
-            "internal_data": query_response.get("internal_data", ""),
-            "project_name": project_name,
-        }
-        request_logger.info(json.dumps(log_data))
-        logging.info("Logged unstored query information to CloudWatch.")
-    except ClientError as e:
-        logging.error(f"AWS ClientError while logging to CloudWatch: {e}")
-    except Exception as e:
-        logging.error(
-            f"Error occurred while logging query info to CloudWatch: {e}"
-        )
+   expected_log_data = common_query_data
+   print(f"Expected log data: {expected_log_data}")
+   mock_logger.info.assert_called_once_with(json.dumps(expected_log_data))
 
 
-For the above function i want to write a test cases.
-please cover all the cases and it should cover all the fucntion lines
+now i am getting this error see below,
+
+FAILED tests/test_utility.py::test_log_unstored_query_info_success - AssertionError: expected call not found.
+
+E           AssertionError: expected call not found.
+E           Expected: getLogger(log_group_name='/aws/DDB/UserQueryInfo', log_stream_name='/aws/DDB/UserQueryInfo/test_123_test_query_id', boto3_client=<MagicMock name='CloudWatchLogHandler()' id='139642058333824'>)
+E           Actual: getLogger('CloudWatchLogger')
+
+/usr/lib/python3.9/unittest/mock.py:907: AssertionError
+
+please fix this test case.
