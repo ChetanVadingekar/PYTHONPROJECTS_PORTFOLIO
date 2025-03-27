@@ -1,45 +1,146 @@
-@patch("utility.get_cloudwatch_log_group_name")
-@patch("utility.boto3.client")
-@patch("utility.watchtower.CloudWatchLogHandler")
-@patch("utility.logging.getLogger")
-def test_log_unstored_query_info_success( 
-    mock_watchtower_handler, 
-    mock_boto_client, 
-    mock_get_log_group,
-    mock_get_logger,
-    common_test_data
-    ):
-   """Test successful logging to CloudWatch"""
-   from utility import log_unstored_query_info_to_cloudwatch
-   mock_get_log_group.return_value = CLOUDWATCH_LOG_GROUP_NAME
-   mock_logger = MagicMock()
-   mock_get_logger.return_value = mock_logger
-   common_query_data = common_test_data.copy()
-   common_query_data.update({
-            "query_id": "test_query_id",
-            "status_code": 200
-    })
-   log_unstored_query_info_to_cloudwatch(**common_query_data)
-   log_stream_name = f"{CLOUDWATCH_LOG_GROUP_NAME}/{common_query_data['user_id']}_{common_query_data['query_id']}"
-   mock_watchtower_handler.assert_called_once_with(
-       log_group_name= CLOUDWATCH_LOG_GROUP_NAME,
-       log_stream_name=log_stream_name,
-       boto3_client=mock_boto_client.return_value,
-   )
+def call_fetch_description_events(
+    description: str, page_no: int, page_size: int, project_name: str
+) -> tuple[dict, dict[Any, Any], int, float, str]:
+    """
+    Call fetch_description_events to get list of event ID based on description.
 
-   expected_log_data = common_query_data
-   print(f"Expected log data: {expected_log_data}")
-   mock_logger.info.assert_called_once_with(json.dumps(expected_log_data))
+    Args:
+        description (str): The description to filter events by.
+        page_no (int): page number for pagination
+        page_size (int): page size for pagination
+        project_name (str): project_name to fetch project data
+
+    Returns:
+        tuple[dict, dict[Any, Any], int, float, str]: A tuple containing a list
+                                    of, event ID HTTP status code, and error
+                                    message if any.
+    """
+    ssm_client = client("ssm", region_name=REGION_NAME)
+    param_name = f"/{ENV}/DescriptionAPI/Endpoint/URL"
+    ssm_response = ssm_client.get_parameter(Name=param_name)
+    description_api_url = ssm_response["Parameter"]["Value"]
+    description_api_url = (
+        description_api_url
+        + f"?project-name={project_name}&page-number={page_no}"
+        + f"&page-size={page_size}"
+    )
+    logging.info(f"description_api_url {description_api_url}")
+    if not is_valid_url(description_api_url):
+        logging.warning("Invalid or unconfigured Description API URL.")
+        msg = "No events found"
+        return ({}, {}, 200, 30.0, msg)
+    try:
+        description_response = requests.post(
+            description_api_url, json={"query": description}, timeout=30
+        )
+        query_response_time = description_response.elapsed.total_seconds()
+        logging.info(
+            f"description_api_response {description_response} and"
+            f"status_code {description_response.status_code}"
+        )
+        if description_response.status_code == 200:
+            logging.info(
+                f"description_response.json() {description_response.json()}"
+            )
+            display_scores = {
+                item["display_id"]: item.get('score', "Unavailable")
+                for item in description_response.json().get("data", [])
+            }
+            logging.info(f"display_scores {display_scores}")
+            return (
+                description_response.json(),
+                display_scores,
+                description_response.status_code,
+                query_response_time,
+                "",
+            )
+        if description_response.status_code == 404:
+            msg = "Endpoint URL for fetch-description-events not found"
+            return (
+                {},
+                {},
+                description_response.status_code,
+                query_response_time,
+                msg,
+            )
+
+        msg = "An error occurred while processing the request."
+        return (
+            {},
+            {},
+            description_response.status_code,
+            query_response_time,
+            msg,
+        )
+    except JSONDecodeError:
+        msg = "Invalid JSON response from Query API"
+        return ({}, {}, 400, 30.0, msg)
+    except requests.exceptions.ReadTimeout:
+        msg = "Request time out for Honda query API"
+        return ({}, {}, 400, 30.0, msg)
+    except requests.exceptions.ConnectTimeout:
+        msg = "Connection failed for Honda query API"
+        return ({}, {}, 400, 30.0, msg)
 
 
-now i am getting this error see below,
+I have above function and we have wirtten test cases 
+please refere below test case
 
-FAILED tests/test_utility.py::test_log_unstored_query_info_success - AssertionError: expected call not found.
 
-E           AssertionError: expected call not found.
-E           Expected: getLogger(log_group_name='/aws/DDB/UserQueryInfo', log_stream_name='/aws/DDB/UserQueryInfo/test_123_test_query_id', boto3_client=<MagicMock name='CloudWatchLogHandler()' id='139642058333824'>)
-E           Actual: getLogger('CloudWatchLogger')
+def test_call_fetch_description_events_success(ssm_client):
 
-/usr/lib/python3.9/unittest/mock.py:907: AssertionError
+    """Test case for call_fetch_description success"""
+    global ENV
+    ENV = "Prod"
+    put_parameter_store_config(ssm_client=ssm_client, params=PARAMETER_STORE_PARAMS)
 
-please fix this test case.
+    with patch('utility.requests.post') as mock_post:
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {     
+            "total": 2, 
+            "internal_data": "Testing internal data",
+            "data": [ 
+                { 
+                "display_id": "event1",
+                "score": "70%"
+                }, 
+                { 
+                "display_id": "event2",
+                "score": "65%"
+                }
+            ]
+        }
+        mock_post.return_value.elapsed = Mock()
+        mock_post.return_value.elapsed.total_seconds = Mock(return_value=3)
+        from utility import call_fetch_description_events
+        result = call_fetch_description_events("Test description", 1, 20, "test-project")
+        expected_response = (     
+            {
+                "total": 2,
+                "internal_data": "Testing internal data",
+                "data": [
+                    {
+                        "display_id": "event1",
+                        "score": "70%"
+                    },
+                    {
+                        "display_id": "event2",
+                        "score": "65%"
+                    }
+                ]
+            }, {"event1":"70%", "event2":"65%"}, 200, 3, "")
+    assert result == expected_response
+
+def test_call_fetch_description_events_read_timeout(ssm_client):
+    """Test case for call_fetch_description_events handling ReadTimeout exception"""
+    global ENV
+    ENV = "Prod"
+    put_parameter_store_config(ssm_client=ssm_client, params=PARAMETER_STORE_PARAMS)
+    with patch('utility.requests.post', side_effect=requests.exceptions.ReadTimeout):
+        from utility import call_fetch_description_events
+        result = call_fetch_description_events("Test description", 1, 20, "test-project")
+        expected_response = ({}, {}, 400, 30.0, "Request time out for Honda query API")
+        assert result == expected_response
+
+Now i want to write test case for JSONDecodeError and if url is not valid.
+plese give this two test cases.
