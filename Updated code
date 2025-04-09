@@ -1,67 +1,88 @@
-def get_cloudwatch_log_group_name(param_suffix: str) -> str:
+def update_event_session_tags() -> ResponseReturnValue:
     """
-    Get CloudWatch log group name dynamically from AWS SSM Parameter Store.
-
-    Args:
-        param_suffix (str): The suffix of the SSM parameter name.
+    Update the tag list for an event session.
 
     Returns:
-        str: CloudWatch Log group name.
+        (ResponseReturnValue): A JSON response indicating success or failure.
+    """
+    try:
+        data = request.get_json()
+        new_tag_list = data.get('new_tag_list')
+        lowercase_tags = set([tag.lower().strip() for tag in new_tag_list])
+        project_name = request.args.get("project-name")
+        pid = data.get('pid')
+        event_id = data.get("id")
+        lookup_data = fetch_data_from_lookup_table(project_name=project_name)
+        event_table_name = lookup_data[0].get("event_session_table_name")
+        event_table = dynamodb.Table(event_table_name)
+        response = event_table.update_item(
+            Key={"pid": pid, "id": event_id},
+            UpdateExpression="SET manual_tags = :mt",
+            ExpressionAttributeValues={":mt": lowercase_tags},
+        )
+        logging.info(
+            f"Dynamodb response for updating event session tags info:"
+            f" {response}"
+        )
+        return jsonify({"message": "Tag List updated successfully"}), 200
+
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+def get_user_email(
+    role_code_flag: bool = False,
+) -> Union[str, list]:
+    """
+    Fetch the email and role_code associated with a given \
+        user ID from the Cognito User Pool.
+
+    Args:
+        role_code_flag (bool): The role code indicating the type of user.
+
+    Returns:
+        Union[str, list]: A single email as a\
+              string or a list containing one string and one boolean.
 
     Raises:
-        ssm_client.exceptions.InternalServerError: AWS service is down
-        ssm_client.exceptions.ParameterNotFound: Parameter not found in
-                                                    ParameterStore
+        IndexError:If the email attribute is not found in the user's attributes
     """
-    ssm_client = boto3.client("ssm", region_name=REGION_NAME)
+    user_id = g.get("user_id")
+    user_pool_id = get_user_pool_id()
+
+    if not user_id or not user_pool_id:
+        return ""
     try:
-        param_name = f"/{ENV}{param_suffix}"
-        response = ssm_client.get_parameter(Name=param_name)
-        log_group_name = response["Parameter"]["Value"]
-        logging.info(
-            f"Fetched CloudWatch Log Group:{log_group_name} Param:{param_name}"
+        cognito_client = boto3.client('cognito-idp', region_name=REGION_NAME)
+        cognito_response = cognito_client.admin_get_user(
+            UserPoolId=user_pool_id,
+            Username=user_id,
         )
-        return log_group_name
-
-    except ssm_client.exceptions.ParameterNotFound:
-        logging.error(f"Parameter {param_name} not found in Parameter Store")
-        raise
-
-    except ssm_client.exceptions.InternalServerError:
-        logging.error("AWS service: SystemManager ParameterStore issues")
-        raise
-
-
-we have this above function and we have written few test cases see below For youre reference 
-
-@mock_aws
-def test_get_cloudwatch_log_group_name(ssm_client):
-    """Test API Logging CW log group name success response"""
-    log_group_name = "/custom/APIlogging"
-    params = [{
-        "DataType": "text",
-        "Type": "String",
-        "Name": f"/{ENV}/APILogging/CloudWatch/LogGroupName",
-        "Value": log_group_name
-    }]
-    put_parameter_store_config(ssm_client=ssm_client, params=params)
-
-    from utility import get_cloudwatch_log_group_name
-    param_name = "/APILogging/CloudWatch/LogGroupName"
-    assert log_group_name == get_cloudwatch_log_group_name(param_name)
-
-
-@mock_aws
-def test_get_cloudwatch_log_group_name_error_response(ssm_client):
-    """Test API Logging CW log group name: ParameterNotFound error response"""
-    put_parameter_store_config(ssm_client=ssm_client,
-                               params=PARAMETER_STORE_PARAMS)
-
-    from utility import get_cloudwatch_log_group_name
-
-    param_name = "/APILogging/CloudWatch/LogGroupName"
-    with pytest.raises(ssm_client.exceptions.ParameterNotFound) as excinfo:
-        _ = get_cloudwatch_log_group_name(param_name)
-
-
-please cover this test case
+    except Exception as e:
+        return f"Error fetching user data: {str(e)}"
+    user_attr = cognito_response['UserAttributes']
+    email_attr = (
+        attr['Value'] for attr in user_attr if attr['Name'] == 'email'
+    )
+    email = next(email_attr, None)
+    if email is None:
+        raise IndexError("Email attribute not found in user's attributes.")
+    if role_code_flag:
+        role_code_attr = (
+            attr['Value']
+            for attr in user_attr
+            if attr['Name'] == 'custom:role_code'
+        )
+        role_code = next(role_code_attr, None)
+        if role_code is None:
+            raise IndexError(
+                "role_code attribute not found in user's attributes."
+            )
+        response = role_info_table.query(
+            KeyConditionExpression=Key('role_code').eq(role_code)
+        )
+        data = response.get('Items', [])
+        admin_authorization = data[0].get('is_admin_role', False)
+        return [email, admin_authorization]
+    return email
